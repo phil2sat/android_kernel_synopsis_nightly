@@ -1622,9 +1622,12 @@ ssize_t blkdev_aio_write(struct kiocb *iocb, const struct iovec *iov,
 {
 	struct file *file = iocb->ki_filp;
 	struct block_device *bdev = I_BDEV(file->f_mapping->host);
+	struct blk_plug plug;
 	ssize_t ret;
 
 	BUG_ON(iocb->ki_pos != pos);
+
+	blk_start_plug(&plug);
 
 	percpu_down_read(&bdev->bd_block_size_semaphore);
 
@@ -1638,6 +1641,8 @@ ssize_t blkdev_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	}
 
 	percpu_up_read(&bdev->bd_block_size_semaphore);
+
+	blk_finish_plug(&plug);
 
 	return ret;
 }
