@@ -136,11 +136,6 @@ config GENERIC_IRQ_PROBE
 	bool
 	default y
 
-config GENERIC_LOCKBREAK
-	bool
-	default y if !ARM_TICKET_LOCKS
-	depends on SMP && PREEMPT
-
 config RWSEM_GENERIC_SPINLOCK
 	bool
 	default y
