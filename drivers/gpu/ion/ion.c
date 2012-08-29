@@ -509,6 +509,7 @@ void ion_free(struct ion_client *client, struct ion_handle *handle)
 	if (!valid_handle) {
 		mutex_unlock(&client->lock);
 		WARN(1, "%s: invalid handle passed to free.\n", __func__);
+		mutex_unlock(&client->lock);
 		return;
 	}
 	ion_handle_put(handle);
