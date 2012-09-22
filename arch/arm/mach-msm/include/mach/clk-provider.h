@@ -1,7 +1,6 @@
-/* arch/arm/mach-msm/clock.h
- *
+/*
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2007-2012, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2007-2012, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -14,27 +13,15 @@
  *
  */
 
-#ifndef __ARCH_ARM_MACH_MSM_CLOCK_H
-#define __ARCH_ARM_MACH_MSM_CLOCK_H
+#ifndef __MACH_CLK_PROVIDER_H
+#define __MACH_CLK_PROVIDER_H
 
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/clkdev.h>
 #include <linux/spinlock.h>
 #include <linux/mutex.h>
-
 #include <mach/clk.h>
-
-#define CLKFLAG_INVERT			0x00000001
-#define CLKFLAG_NOINVERT		0x00000002
-#define CLKFLAG_NONEST			0x00000004
-#define CLKFLAG_NORESET			0x00000008
-#define CLKFLAG_HWCG			0x00000020
-#define CLKFLAG_RETAIN			0x00000040
-#define CLKFLAG_NORETAIN		0x00000080
-#define CLKFLAG_SKIP_HANDOFF		0x00000100
-#define CLKFLAG_MIN			0x00000400
-#define CLKFLAG_MAX			0x00000800
 
 /*
  * Bit manipulation macros
@@ -115,8 +102,6 @@ struct clk_ops {
  * @depends: non-direct parent of clock to enable when this clock is enabled
  * @vdd_class: voltage scaling requirement class
  * @fmax: maximum frequency in Hz supported at each voltage level
- * @parent: the current source of this clock
- * @warned: true if the clock has warned of incorrect usage, false otherwise
  */
 struct clk {
 	uint32_t flags;
@@ -126,12 +111,10 @@ struct clk {
 	struct clk_vdd_class *vdd_class;
 	unsigned long fmax[MAX_VDD_LEVELS];
 	unsigned long rate;
-	struct clk *parent;
 
 	struct list_head children;
 	struct list_head siblings;
 
-	bool warned;
 	unsigned count;
 	spinlock_t lock;
 	unsigned prepare_count;
@@ -144,49 +127,11 @@ struct clk {
 	.children = LIST_HEAD_INIT((name).children), \
 	.siblings = LIST_HEAD_INIT((name).siblings)
 
-/**
- * struct clock_init_data - SoC specific clock initialization data
- * @table: table of lookups to add
- * @size: size of @table
- * @pre_init: called before initializing the clock driver.
- * @post_init: called after registering @table. clock APIs can be called inside.
- * @late_init: called during late init
- */
-struct clock_init_data {
-	struct clk_lookup *table;
-	size_t size;
-	void (*pre_init)(void);
-	void (*post_init)(void);
-	int (*late_init)(void);
-};
-
-extern struct clock_init_data msm9615_clock_init_data;
-extern struct clock_init_data apq8064_clock_init_data;
-extern struct clock_init_data fsm9xxx_clock_init_data;
-extern struct clock_init_data msm7x01a_clock_init_data;
-extern struct clock_init_data msm7x27_clock_init_data;
-extern struct clock_init_data msm7x27a_clock_init_data;
-extern struct clock_init_data msm7x30_clock_init_data;
-extern struct clock_init_data msm8960_clock_init_data;
-extern struct clock_init_data msm8x60_clock_init_data;
-extern struct clock_init_data qds8x50_clock_init_data;
-extern struct clock_init_data msm8625_dummy_clock_init_data;
-extern struct clock_init_data msm8930_clock_init_data;
-extern struct clock_init_data msm8974_clock_init_data;
-
-void msm_clock_init(struct clock_init_data *data);
 int vote_vdd_level(struct clk_vdd_class *vdd_class, int level);
 int unvote_vdd_level(struct clk_vdd_class *vdd_class, int level);
 
-#ifdef CONFIG_DEBUG_FS
-int clock_debug_init(struct clock_init_data *data);
-int clock_debug_add(struct clk *clock);
-void clock_debug_print_enabled(void);
-#else
-static inline int clock_debug_init(struct clk_init_data *data) { return 0; }
-static inline int clock_debug_add(struct clk *clock) { return 0; }
-static inline void clock_debug_print_enabled(void) { return; }
-#endif
+/* Register clocks with the MSM clock driver */
+int msm_clock_register(struct clk_lookup *table, size_t size);
 
 extern struct clk dummy_clk;
 
@@ -199,4 +144,3 @@ extern struct clk dummy_clk;
 #define CLK_LOOKUP(con, c, dev) { .con_id = con, .clk = &c, .dev_id = dev }
 
 #endif
-
