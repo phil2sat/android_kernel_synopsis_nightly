@@ -101,6 +101,49 @@ static ktime_t tick_init_jiffy_update(void)
 	return period;
 }
 
+
+static void tick_sched_do_timer(ktime_t now)
+{
+	int cpu = smp_processor_id();
+
+#ifdef CONFIG_NO_HZ
+	/*
+	 * Check if the do_timer duty was dropped. We don't care about
+	 * concurrency: This happens only when the cpu in charge went
+	 * into a long sleep. If two cpus happen to assign themself to
+	 * this duty, then the jiffies update is still serialized by
+	 * xtime_lock.
+	 */
+	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE))
+		tick_do_timer_cpu = cpu;
+#endif
+
+	/* Check, if the jiffies need an update */
+	if (tick_do_timer_cpu == cpu)
+		tick_do_update_jiffies64(now);
+}
+
+static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
+{
+#ifdef CONFIG_NO_HZ
+	/*
+	 * When we are idle and the tick is stopped, we have to touch
+	 * the watchdog as we might not schedule for a really long
+	 * time. This happens on complete idle SMP systems while
+	 * waiting on the login prompt. We also increment the "start of
+	 * idle" jiffy stamp so the idle accounting adjustment we do
+	 * when we go busy again does not account too much ticks.
+	 */
+	if (ts->tick_stopped) {
+		touch_softlockup_watchdog();
+		if (is_idle_task(current))
+			ts->idle_jiffies++;
+	}
+#endif
+	update_process_times(user_mode(regs));
+	profile_tick(CPU_PROFILING);
+}
+
 /*
  * NOHZ - aka dynamic tick functionality
  */
@@ -619,40 +662,12 @@ static void tick_nohz_handler(struct clock_event_device *dev)
 {
 	struct tick_sched *ts = &__get_cpu_var(tick_cpu_sched);
 	struct pt_regs *regs = get_irq_regs();
-	int cpu = smp_processor_id();
 	ktime_t now = ktime_get();
 
 	dev->next_event.tv64 = KTIME_MAX;
 
-	/*
-	 * Check if the do_timer duty was dropped. We don't care about
-	 * concurrency: This happens only when the cpu in charge went
-	 * into a long sleep. If two cpus happen to assign themself to
-	 * this duty, then the jiffies update is still serialized by
-	 * xtime_lock.
-	 */
-	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE))
-		tick_do_timer_cpu = cpu;
-
-	/* Check, if the jiffies need an update */
-	if (tick_do_timer_cpu == cpu)
-		tick_do_update_jiffies64(now);
-
-	/*
-	 * When we are idle and the tick is stopped, we have to touch
-	 * the watchdog as we might not schedule for a really long
-	 * time. This happens on complete idle SMP systems while
-	 * waiting on the login prompt. We also increment the "start
-	 * of idle" jiffy stamp so the idle accounting adjustment we
-	 * do when we go busy again does not account too much ticks.
-	 */
-	if (ts->tick_stopped) {
-		touch_softlockup_watchdog();
-		ts->idle_jiffies++;
-	}
-
-	update_process_times(user_mode(regs));
-	profile_tick(CPU_PROFILING);
+	tick_sched_do_timer(now);
+	tick_sched_handle(ts, regs);
 
 	while (tick_nohz_reprogram(ts, now)) {
 		now = ktime_get();
@@ -775,17 +790,7 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 	ktime_t now = ktime_get();
 	int cpu = smp_processor_id();
 
-#ifdef CONFIG_NO_HZ
-	/*
-	 * Check if the do_timer duty was dropped. We don't care about
-	 * concurrency: This happens only when the cpu in charge went
-	 * into a long sleep. If two cpus happen to assign themself to
-	 * this duty, then the jiffies update is still serialized by
-	 * xtime_lock.
-	 */
-	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE))
-		tick_do_timer_cpu = cpu;
-#endif
+	tick_sched_do_timer(now);
 
 	/* Check, if the jiffies need an update */
 	if (tick_do_timer_cpu == cpu)
@@ -796,24 +801,11 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 	 * no valid regs pointer
 	 */
 	if (regs) {
-		/*
-		 * When we are idle and the tick is stopped, we have to touch
-		 * the watchdog as we might not schedule for a really long
-		 * time. This happens on complete idle SMP systems while
-		 * waiting on the login prompt. We also increment the "start of
-		 * idle" jiffy stamp so the idle accounting adjustment we do
-		 * when we go busy again does not account too much ticks.
-		 */
-		if (ts->tick_stopped) {
-			touch_softlockup_watchdog();
-			ts->idle_jiffies++;
-		}
-		update_process_times(user_mode(regs));
-		profile_tick(CPU_PROFILING);
+		tick_sched_handle(ts, regs);
 
 #ifdef CONFIG_MSM_RUN_QUEUE_STATS
 		/* update rq_avg report (for mpdecision) */
-		if (tick_do_timer_cpu == smp_processor_id())
+		if (tick_do_timer_cpu == cpu)
 			msm_update_rq_stats();
 #endif
 	}
