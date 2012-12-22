@@ -825,6 +825,12 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 				pr_err("%s failed on smd_pkt_dev id:%d -"
 				       " pil_get failed for %s\n", __func__,
 					smd_pkt_devp->i, peripheral);
+				/*
+				 * Sleep inorder to reduce the frequency of
+				 * retry by user-space modules and to avoid
+				 * possible watchdog bite.
+				 */
+				msleep((smd_pkt_devp->open_modem_wait * 1000));
 				goto release_pd;
 			}
 
