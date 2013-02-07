@@ -489,6 +489,18 @@ static enum handoff pll_clk_handoff(struct clk *c)
 		BUG();
 	}
 
+	if (!pll_clk_is_enabled(c))
+		return HANDOFF_DISABLED_CLK;
+
+	/*
+	 * Do not call pll_clk_enable() since that function can assume
+	 * the PLL is not in use when it's called.
+	 */
+	remote_spin_lock(&pll_lock);
+	pll_control->pll[PLL_BASE + pll->id].votes |= BIT(1);
+	pll_control->pll[PLL_BASE + pll->id].on = 1;
+	remote_spin_unlock(&pll_lock);
+
 	return HANDOFF_ENABLED_CLK;
 }
 
