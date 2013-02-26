@@ -308,12 +308,26 @@ static struct msm_dmov_cmd *start_ready_cmd(unsigned ch, int adm)
 	list_del(&cmd->list);
 	if (cmd->exec_func)
 		cmd->exec_func(cmd);
-	list_add_tail(&cmd->list, &dmov_conf[adm].active_commands[ch]);
-	if (!dmov_conf[adm].channel_active)
-		enable_irq(dmov_conf[adm].irq);
-	dmov_conf[adm].channel_active |= BIT(ch);
-	PRINT_IO("start_ready_cmd, %x, ch %d\n", cmd->cmdptr, ch);
-	writel_relaxed(cmd->cmdptr, DMOV_REG(DMOV_CMD_PTR(ch), adm));
+
+	if((!cmd->toflush) || (cmd->toflush == GRACEFUL)) {
+		list_add_tail(&cmd->list, &dmov_conf[adm].active_commands[ch]);
+		if (!dmov_conf[adm].channel_active)
+			enable_irq(dmov_conf[adm].irq);
+		dmov_conf[adm].channel_active |= BIT(ch);
+		PRINT_IO("msm dmov enqueue command, %x, ch %d\n", cmd->cmdptr, ch);
+		writel_relaxed(cmd->cmdptr, DMOV_REG(DMOV_CMD_PTR(ch), adm));
+	}
+
+	if (cmd->toflush) {
+		int flush = (cmd->toflush == GRACEFUL) ? 1 << 31 : 0;
+		if (cmd->toflush == GRACEFUL) {
+			PRINT_IO("msm_dmov_flush(%d), send flush grace\n", ch);
+			writel_relaxed(flush, DMOV_REG(DMOV_FLUSH0(ch), adm));
+		} else {
+			PRINT_IO("msm_dmov_flush(%d), send flush dummy\n", ch);
+			cmd->complete_func(cmd, 0x80000004, NULL);
+		}
+	}
 
 	return cmd;
 }
@@ -357,17 +371,6 @@ static void msm_dmov_enqueue_cmd_ext_work(struct work_struct *work)
 						" start command, status %x\n",
 						id, status);
 				cmd = start_ready_cmd(ch, adm);
-				/*
-				 * We added something to the ready list,
-				 * and still hold the list lock.
-				 * Thus, no need to check for cmd == NULL
-				 */
-				if (cmd->toflush) {
-					int flush = (cmd->toflush == GRACEFUL) ?
-							1 << 31 : 0;
-					writel_relaxed(flush,
-						DMOV_REG(DMOV_FLUSH0(ch), adm));
-				}
 			} else {
 				if (list_empty(&dmov_conf[adm].
 						active_commands[ch]))
@@ -471,6 +474,7 @@ EXPORT_SYMBOL(msm_dmov_enqueue_cmd_ext);
 void msm_dmov_enqueue_cmd(unsigned id, struct msm_dmov_cmd *cmd)
 {
 	/* Disable callback function (for backwards compatibility) */
+	PRINT_IO("msm_dmov_enqueue_cmd%d\n", id);
 	cmd->exec_func = NULL;
 	__msm_dmov_enqueue_cmd_ext(id, cmd, 0);
 }
@@ -483,15 +487,43 @@ void msm_dmov_flush(unsigned int id, int graceful)
 	int adm = DMOV_ID_TO_ADM(id);
 	int flush = graceful ? DMOV_FLUSH_TYPE : 0;
 	struct msm_dmov_cmd *cmd;
+	int i = 0;
 
 	spin_lock_irqsave(&dmov_conf[adm].lock, irq_flags);
 	/* XXX not checking if flush cmd sent already */
 	if (!list_empty(&dmov_conf[adm].active_commands[ch])) {
-		PRINT_IO("msm_dmov_flush(%d), send flush cmd\n", id);
-		writel_relaxed(flush, DMOV_REG(DMOV_FLUSH0(ch), adm));
+		PRINT_IO("msm_dmov_flush(%d), inside active send flush cmd %d\n", id, graceful);
+		if(list_empty(&dmov_conf[adm].staged_commands[ch])) {
+			writel_relaxed(flush, DMOV_REG(DMOV_FLUSH0(ch), adm));
+		} else {
+			i = 0;
+			list_for_each_entry_reverse(cmd, &dmov_conf[adm].staged_commands[ch], list) {
+				if (i == 0) {
+					PRINT_IO("msm_dmov_flush(%d),flush %d cmd no %d\n", id, graceful, i);
+					cmd->toflush = graceful ? GRACEFUL : NONGRACEFUL;
+				} else {
+					PRINT_IO("msm_dmov_flush(%d),flush %d cmd no %d\n", id, graceful, i);
+					if (!graceful)
+						list_del(&cmd->list);
+				}
+				i++;
+			}
+		}
+	} else {
+		PRINT_IO("msm_dmov_flush(%d), else active send flush cmd %d\n", id, graceful);
+		i = 0;
+		list_for_each_entry_reverse(cmd, &dmov_conf[adm].staged_commands[ch], list) {
+			if (i == 0) {
+				PRINT_IO("msm_dmov_flush(%d),flush %d cmd no %d\n", id, graceful, i);
+				cmd->toflush = graceful ? GRACEFUL : NONGRACEFUL;
+			} else {
+				PRINT_IO("msm_dmov_flush(%d),flush %d cmd no %d\n", id, graceful, i);
+				if (!graceful)
+					list_del(&cmd->list);
+			}
+			i++;
+		}
 	}
-	list_for_each_entry(cmd, &dmov_conf[adm].staged_commands[ch], list)
-		cmd->toflush = graceful ? GRACEFUL : NONGRACEFUL;
 	list_for_each_entry(cmd, &dmov_conf[adm].ready_commands[ch], list)
 		cmd->toflush = graceful ? GRACEFUL : NONGRACEFUL;
 	/* spin_unlock_irqrestore has the necessary barrier */
@@ -681,8 +713,9 @@ static irqreturn_t msm_dmov_isr(int irq, void *dev_id)
 				struct msm_dmov_errdata errdata;
 
 				fill_errdata(&errdata, ch, adm);
-				PRINT_FLOW("msm_datamover_irq_handler id %d,"\
-					" status %x\n", id, ch_status);
+				PRINT_IO("msm_datamover_irq_handler id %d,"\
+					" status %x result %x\n",
+					id, ch_status, ch_result);
 				PRINT_FLOW("msm_datamover_irq_handler id %d,"\
 					" flush, result %x,flush0 %x\n", id,
 					ch_result, errdata.flush[0]);
