@@ -251,12 +251,14 @@ static int mipi_dsi_on(struct platform_device *pdev)
 			MIPI_OUTP(MIPI_DSI_BASE + 0x00ac, mipi->dlane_swap);
 
 			MIPI_OUTP(MIPI_DSI_BASE + 0x20,
-				((hbp + width + dummy_xres) << 16 | (hbp)));
+				((hspw + hbp + width + dummy_xres) << 16 |
+								(hspw + hbp)));
 			MIPI_OUTP(MIPI_DSI_BASE + 0x24,
-				((vbp + height + dummy_yres) << 16 | (vbp)));
+				((vspw + vbp + height + dummy_yres) << 16 |
+								(vspw + vbp)));
 			MIPI_OUTP(MIPI_DSI_BASE + 0x28,
-				(vbp + height + dummy_yres + vfp) << 16 |
-					(hbp + width + dummy_xres + hfp));
+			(vspw + vbp + height + dummy_yres + vfp - 1) << 16 |
+				(hspw + hbp + width + dummy_xres + hfp - 1));
 		}
 
 		MIPI_OUTP(MIPI_DSI_BASE + 0x2c, (hspw << 16));
