@@ -585,8 +585,7 @@ static void omap_pm_init_proc(void)
 static int omap_pm_prepare(void)
 {
 	/* We cannot sleep in idle until we have resumed */
-	disable_hlt();
-
+	cpu_idle_poll_ctrl(true);
 	return 0;
 }
 
@@ -622,7 +621,7 @@ static int omap_pm_enter(suspend_state_t state)
 
 static void omap_pm_finish(void)
 {
-	enable_hlt();
+	cpu_idle_poll_ctrl(false);
 }
 
 

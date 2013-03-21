@@ -76,7 +76,7 @@ void __init gemini_init_irq(void)
 	 * Disable the idle handler by default since it is buggy
 	 * For more info see arch/arm/mach-gemini/idle.c
 	 */
-	disable_hlt();
+	cpu_idle_poll_ctrl(true);
 
 	request_resource(&iomem_resource, &irq_resource);
 
