@@ -136,7 +136,6 @@ start:
 1:		mov	r7, r1			@ save architecture ID
 		mov	r8, r2			@ save atags pointer
 
-#ifndef __ARM_ARCH_2__
 		/*
 		 * Booting from Angel - need to enter SVC mode and disable
 		 * FIQs/IRQs (numeric definitions from angel arm.h source).
@@ -152,9 +151,6 @@ not_angel:
 		mrs	r2, cpsr		@ turn off interrupts to
 		orr	r2, r2, #0xc0		@ prevent angel from running
 		msr	cpsr_c, r2
-#else
-		teqp	pc, #0x0c000003		@ turn off interrupts
-#endif
 
 		/*
 		 * Note that some cache flushing and other stuff may
