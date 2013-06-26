@@ -128,14 +128,21 @@ static inline void prefetch(const void *ptr)
 		:: "p" (ptr));
 }
 
+#if __LINUX_ARM_ARCH__ >= 7 && defined(CONFIG_SMP)
 #define ARCH_HAS_PREFETCHW
-#define prefetchw(ptr)	prefetch(ptr)
+static inline void prefetchw(const void *ptr)
+{
+	__asm__ __volatile__(
+		".arch_extension	mp\n"
+		__ALT_SMP_ASM(
+			WASM(pldw)		"\t%a0",
+			WASM(pld)		"\t%a0"
+		)
+		:: "p" (ptr));
+}
+#endif /* __LINUX_ARM_ARCH__ >= 7 && defined(CONFIG_SMP) */
+#endif /* __LINUX_ARM_ARCH__ >= 5 */
 
-#define ARCH_HAS_SPINLOCK_PREFETCH
-#define spin_lock_prefetch(x) do { } while (0)
-
-#endif
-
-#endif
+#endif /* __KERNEL__ */
 
 #endif /* __ASM_ARM_PROCESSOR_H */
