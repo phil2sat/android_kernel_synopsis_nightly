@@ -236,6 +236,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 	 *
 	 * We can't do this for DEBUG_MUTEXES because that relies on wait_lock
 	 * to serialize everything.
+	 *
 	 * The mutex spinners are queued up using MCS lock so that only one
 	 * spinner can compete for the mutex. However, if mutex spinning isn't
 	 * going to happen, there is no point in going through the lock/unlock
@@ -258,8 +259,8 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		if ((atomic_read(&lock->count) == 1) &&
 		    (atomic_cmpxchg(&lock->count, 1, 0) == 1)) {
 			lock_acquired(&lock->dep_map, ip);
-			mutex_set_owner(lock);
-			goto done;
+			preempt_enable();
+			return 0;
 		}
 
 		/*
@@ -324,6 +325,7 @@ slowpath:
 			preempt_enable();
 			return -EINTR;
 		}
+
 		__set_task_state(task, state);
 
 		/* didn't get the lock, go to sleep: */
@@ -344,7 +346,6 @@ skip_wait:
 
 	spin_unlock_mutex(&lock->wait_lock, flags);
 
-done:
 	preempt_enable();
 
 	return 0;
