@@ -3,6 +3,8 @@
  *
  *  Copyright (C) 1995-1999 Russell King
  *
+ *  Copyright (c) 2014, NVIDIA CORPORATION.  All rights reserved.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -140,5 +142,7 @@ static inline void prefetchw(const void *ptr)
 #endif /* __LINUX_ARM_ARCH__ >= 5 */
 
 #endif /* __KERNEL__ */
+
+#include <asm-generic/processor.h>
 
 #endif /* __ASM_ARM_PROCESSOR_H */
