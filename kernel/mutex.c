@@ -134,7 +134,7 @@ int mutex_spin_on_owner(struct mutex *lock, struct task_struct *owner)
 		if (need_resched())
 			break;
 
-		arch_mutex_cpu_relax();
+		cpu_read_relax();
 	}
 	rcu_read_unlock();
 
@@ -158,7 +158,7 @@ static inline int mutex_can_spin_on_owner(struct mutex *lock)
 		return 0;
 
 	rcu_read_lock();
-	owner = ACCESS_ONCE(lock->owner);
+	owner = cpu_relaxed_read_long(&(lock->owner));
 	if (owner)
 		retval = owner->on_cpu;
 	rcu_read_unlock();
@@ -248,7 +248,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		 * If there's an owner, wait for it to either
 		 * release the lock or go to sleep.
 		 */
-		owner = ACCESS_ONCE(lock->owner);
+		owner = cpu_relaxed_read(&(lock->owner));
 		if (owner && !mutex_spin_on_owner(lock, owner))
 			break;
 
@@ -275,7 +275,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		 * memory barriers as we'll eventually observe the right
 		 * values at the cost of a few extra spins.
 		 */
-		arch_mutex_cpu_relax();
+		cpu_read_relax();
 	}
 slowpath:
 	/*
