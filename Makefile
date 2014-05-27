@@ -378,7 +378,6 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
-		   -fno-delete-null-pointer-checks \
 		   $(CFLAGS_CUSTOM)
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
@@ -567,6 +566,10 @@ endif # $(dot-config)
 # Defaults to vmlinux, but the arch makefile usually adds further targets
 all: vmlinux
 
+include $(srctree)/arch/$(SRCARCH)/Makefile
+
+KBUILD_CFLAGS	+= $(call cc-option,-fno-delete-null-pointer-checks,)
+
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os
 else
@@ -584,9 +587,7 @@ ifeq ($(ENABLE_BLUEZ_VER30),true)
 KBUILD_CFLAGS += -DHUAWEI_BT_BLUEZ_VER30
 endif
 
-
 KBUILD_CFLAGS	+= -DHUAWEI_KERNEL_VERSION=\"${HUAWEI_KERNEL_VERSION}\"
-include $(srctree)/arch/$(SRCARCH)/Makefile
 
 #################  [ WIFI HACK ]  #################
 # Enforce loading of pre-built wifi kernel objects
