@@ -580,6 +580,13 @@ endif
 KBUILD_CFLAGS	+= -DHUAWEI_KERNEL_VERSION=\"${HUAWEI_KERNEL_VERSION}\"
 include $(srctree)/arch/$(SRCARCH)/Makefile
 
+#################  [ WIFI HACK ]  #################
+# Enforce loading of pre-built wifi kernel objects
+# -( leave this disabled unless really needed ! )-
+#--------------------------------------------------
+KBUILD_CFLAGS += -DKERNEL_HACK_ENFORCE_ATH6KL
+##############  [ END OF WIFI HACK ]  #############
+
 ifneq ($(CONFIG_FRAME_WARN),0)
 KBUILD_CFLAGS += $(call cc-option,-Wframe-larger-than=${CONFIG_FRAME_WARN})
 endif
