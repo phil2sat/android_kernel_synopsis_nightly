@@ -574,6 +574,9 @@ else
 KBUILD_CFLAGS	+= -O2
 endif
 
+# Tell gcc to never replace conditional load with a non-conditional one
+KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
+
 # Add Huawei Marco for different BT chip
 ifeq ($(ENABLE_BTLA_VER30),true)
 KBUILD_CFLAGS += -DHUAWEI_BT_BTLA_VER30
