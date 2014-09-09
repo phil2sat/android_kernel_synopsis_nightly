@@ -399,7 +399,7 @@ static int __init arch_timer_common_register(void)
 		err = request_percpu_irq(arch_timer_ppi, arch_timer_handler,
 				 "arch_timer", arch_timer_evt);
 	else
-		err = request_irq(arch_timer_ppi, arch_timer_handler, 0,
+		err = request_irq(arch_timer_ppi, arch_timer_handler, IRQF_TIMER,
 			"arch_timer", arch_timer_evt);
 	if (err) {
 		pr_err("arch_timer: can't register interrupt %d (%d)\n",
@@ -414,7 +414,7 @@ static int __init arch_timer_common_register(void)
 					arch_timer_evt);
 		else
 			err = request_irq(arch_timer_ppi2, arch_timer_handler,
-					0, "arch_timer", arch_timer_evt);
+					IRQF_TIMER, "arch_timer", arch_timer_evt);
 		if (err) {
 			pr_err("arch_timer: can't register interrupt %d (%d)\n",
 			       arch_timer_ppi2, err);
