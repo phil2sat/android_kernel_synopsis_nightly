@@ -330,17 +330,9 @@ int suspend_sys_sync_wait(void)
 	if (suspend_sys_sync_count != 0) {
 		mod_timer(&suspend_sys_sync_timer, jiffies +
 				SUSPEND_SYS_SYNC_TIMEOUT);
-#ifdef CONFIG_HUAWEI_KERNEL
-        printk("HUAWEI suspend: suspend_sys_sync_done false, need to wait\n");
-#endif
 		wait_for_completion(&suspend_sys_sync_comp);
 	}
-#ifdef CONFIG_HUAWEI_KERNEL
-    else
-    {
-        printk("HUAWEI suspend: suspend_sys_sync_done\n");
-    }
-#endif
+
 	if (suspend_sys_sync_abort) {
 		pr_info("suspend aborted....while waiting for sys_sync\n");
 		return -EAGAIN;
