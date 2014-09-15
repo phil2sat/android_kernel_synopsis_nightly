@@ -168,12 +168,6 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
 	
-	/*add qcom debug code*/
-    #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-	print_dpm_list();
-	printk("print_dpm_list in suspend end\n");
-    #endif
-
 	error = syscore_suspend();
 	if (!error) {
 		*wakeup = pm_wakeup_pending();
@@ -183,11 +177,6 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		}
 		syscore_resume();
 	}
-	/*add qcom debug code*/
-    #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-	print_dpm_list();
-	printk("print_dpm_list in resume end\n");
-    #endif
 
 	arch_suspend_enable_irqs();
 	BUG_ON(irqs_disabled());

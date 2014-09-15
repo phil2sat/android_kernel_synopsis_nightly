@@ -54,13 +54,7 @@
 #include <asm/io.h>
 #include <asm/unistd.h>
 
-#ifdef CONFIG_HUAWEI_KERNEL_DEBUG
-#define DBG(format, arg...) do { \
-    printk(KERN_DEBUG "%s: " format "\n" , __func__ , ## arg); \
-} while (0)
-#else
 #define DBG(format, arg...) do { } while (0)
-#endif
 
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a,b)	(-EINVAL)

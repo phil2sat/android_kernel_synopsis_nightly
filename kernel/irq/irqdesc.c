@@ -18,21 +18,6 @@
 #include "internals.h"
 
 /* move from linux/irq.h */
-/* merge qcom DEBUG_CODE for RPC crashes */
-#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-#include <linux/kernel.h>  
-#include <mach/msm_iomap.h>  
-#include <linux/io.h>
-
-#if defined(CONFIG_ARCH_MSM7X30) || defined(CONFIG_ARCH_MSM8X60) \
-	|| defined(CONFIG_ARCH_FSM9XXX)
-#define TIMESTAMP_ADDR_TMP (MSM_TMR_BASE + 0x08)
-#elif defined(CONFIG_ARCH_APQ8064) || defined(CONFIG_ARCH_MSM7X01A) || \
-	defined(CONFIG_ARCH_MSM7x25) || defined(CONFIG_ARCH_MSM7X27) || \
-	defined(CONFIG_ARCH_MSM7X27A) || defined(CONFIG_ARCH_MSM8960) || \
-	defined(CONFIG_ARCH_MSM9615) || defined(CONFIG_ARCH_QSD8X50)
-#define TIMESTAMP_ADDR_TMP (MSM_TMR_BASE + 0x04)
-#endif
 
 static inline unsigned int read_timestamp(void)
 {
@@ -353,25 +338,10 @@ int generic_handle_irq(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
 
-	/* merge qcom DEBUG_CODE for RPC crashes */
-#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-	uint32_t  timetick=0; 
-	timetick = read_timestamp();  
-	irq_ts[irq_idx].irq=irq;
-	irq_ts[irq_idx].ts=timetick; 
-	irq_ts[irq_idx].state=1; 
-	/*end of HUAWEI*/
-#endif
-
-    if (!desc)
+	if (!desc)
 		return -EINVAL;
-    generic_handle_irq_desc(irq, desc);
 
-#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-    /*HUAWEI debug */
-    irq_ts[irq_idx].state=3;
-    irq_idx = (irq_idx + 1)%128; 
-#endif
+	generic_handle_irq_desc(irq, desc);
 
 	return 0;
 }
