@@ -18,6 +18,7 @@
 #include <linux/smp.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
@@ -86,7 +87,7 @@ static void clear_pending_spi(unsigned int irq)
 	c->irq_mask(d);
 	local_irq_disable();
 	/* Clear the IRQ from the ENABLE_SET */
-	gic_clear_spi_pending(irq);
+	gic_clear_irq_pending(irq);
 	local_irq_enable();
 }
 

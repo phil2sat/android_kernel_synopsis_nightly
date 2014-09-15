@@ -25,6 +25,9 @@
 #include "u_ether.h"
 #include "rndis.h"
 
+#ifdef CONFIG_HUAWEI_KERNEL
+#include <asm-arm/huawei/usb_switch_huawei.h>
+#endif
 
 /*
  * This function is an RNDIS Ethernet port -- a Microsoft protocol that's
@@ -449,6 +452,7 @@ static void rndis_command_complete(struct usb_ep *ep, struct usb_request *req)
 	struct f_rndis			*rndis = req->context;
 	struct usb_composite_dev	*cdev = rndis->port.func.config->cdev;
 	int				status;
+	rndis_init_msg_type		*buf;
 
 	/* received RNDIS command from USB_CDC_SEND_ENCAPSULATED_COMMAND */
 //	spin_lock(&dev->lock);
@@ -456,6 +460,19 @@ static void rndis_command_complete(struct usb_ep *ep, struct usb_request *req)
 	if (status < 0)
 		ERROR(cdev, "RNDIS command error %d, %d/%d\n",
 			status, req->actual, req->length);
+
+	buf = (rndis_init_msg_type *)req->buf;
+
+	if (buf->MessageType == REMOTE_NDIS_INITIALIZE_MSG) {
+		if (buf->MaxTransferSize > 2048)
+			rndis->port.multi_pkt_xfer = 1;
+		else
+			rndis->port.multi_pkt_xfer = 0;
+		DBG(cdev, "%s: MaxTransferSize: %d : Multi_pkt_txr: %s\n",
+				__func__, buf->MaxTransferSize,
+				rndis->port.multi_pkt_xfer ? "enabled" :
+							    "disabled");
+	}
 //	spin_unlock(&dev->lock);
 }
 
@@ -837,8 +854,29 @@ rndis_unbind(struct usb_configuration *c, struct usb_function *f)
 /* Some controllers can't support RNDIS ... */
 static inline bool can_support_rndis(struct usb_configuration *c)
 {
+#ifdef CONFIG_HUAWEI_KERNEL
+    /* us/tracfone does not want to support rndis*/
+    if(!strcmp(usb_para_data.vender_para.country_name, COUNTRY_US) 
+        && !strcmp(usb_para_data.vender_para.vender_name, VENDOR_TRACFONE))
+    {        
+        printk("%s: us/tracfone product, rndis not supported\n", __func__);
+        return false; 
+    }
+    else if(!strcmp(usb_para_data.vender_para.country_name, COUNTRY_JAPAN)
+        && !strcmp(usb_para_data.vender_para.vender_name, VENDOR_SOFTBANK))
+    {
+        printk("%s: jp/softbank product, rndis not supported\n", __func__);
+        return false;
+    }
+    else
+    {
+        printk("%s: general product, rndis supported\n", __func__);
+        return true;
+    }
+#else
 	/* everything else is *presumably* fine */
 	return true;
+#endif
 }
 
 /**

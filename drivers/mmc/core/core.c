@@ -48,6 +48,10 @@
  * operations the card has to perform
  */
 #define MMC_BKOPS_MAX_TIMEOUT    (4 * 60 * 1000) /* max time to wait in ms */
+#ifndef CONFIG_HUAWEI_KERNEL
+#include <asm/mach-types.h>
+#define MSM_SDCARD_SCAN_CYCLE	20
+#endif
 
 static struct workqueue_struct *workqueue;
 
@@ -79,8 +83,14 @@ MODULE_PARM_DESC(
 /*
  * Internal function. Schedule delayed work in the MMC work queue.
  */
+/*we want mmc_schedule_delayed_work to run in source code of msm_sdcc*/
+#ifdef CONFIG_HUAWEI_KERNEL
+int mmc_schedule_delayed_work(struct delayed_work *work,
+				     unsigned long delay)
+#else
 static int mmc_schedule_delayed_work(struct delayed_work *work,
 				     unsigned long delay)
+#endif
 {
 	return queue_delayed_work(workqueue, work, delay);
 }
@@ -369,7 +379,7 @@ static void mmc_wait_for_req_done(struct mmc_host *host,
 	struct mmc_command *cmd;
 
 	while (1) {
-		wait_for_completion(&mrq->completion);
+		wait_for_completion_io(&mrq->completion);
 
 		cmd = mrq->cmd;
 		if (!cmd->error || !cmd->retries ||
@@ -1272,49 +1282,6 @@ void mmc_set_driver_type(struct mmc_host *host, unsigned int drv_type)
 	mmc_set_ios(host);
 	mmc_host_clk_release(host);
 }
-
-static void mmc_poweroff_notify(struct mmc_host *host)
-{
-	struct mmc_card *card;
-	unsigned int timeout;
-	unsigned int notify_type = EXT_CSD_NO_POWER_NOTIFICATION;
-	int err = 0;
-
-	card = host->card;
-	mmc_claim_host(host);
-
-	/*
-	 * Send power notify command only if card
-	 * is mmc and notify state is powered ON
-	 */
-	if (card && mmc_card_mmc(card) &&
-	    (card->poweroff_notify_state == MMC_POWERED_ON)) {
-
-		if (host->power_notify_type == MMC_HOST_PW_NOTIFY_SHORT) {
-			notify_type = EXT_CSD_POWER_OFF_SHORT;
-			timeout = card->ext_csd.generic_cmd6_time;
-			card->poweroff_notify_state = MMC_POWEROFF_SHORT;
-		} else {
-			notify_type = EXT_CSD_POWER_OFF_LONG;
-			timeout = card->ext_csd.power_off_longtime;
-			card->poweroff_notify_state = MMC_POWEROFF_LONG;
-		}
-
-		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
-				 EXT_CSD_POWER_OFF_NOTIFICATION,
-				 notify_type, timeout);
-
-		if (err && err != -EBADMSG)
-			pr_err("Device failed to respond within %d poweroff "
-			       "time. Forcefully powering down the device\n",
-			       timeout);
-
-		/* Set the card state to no notification after the poweroff */
-		card->poweroff_notify_state = MMC_NO_POWER_NOTIFICATION;
-	}
-	 mmc_release_host(host);
-}
-
 /*
  * Apply power to the MMC stack.  This is a two-stage process.
  * First, we enable power to the card without the clock running.
@@ -1372,29 +1339,11 @@ void mmc_power_up(struct mmc_host *host)
 
 void mmc_power_off(struct mmc_host *host)
 {
-	int err = 0;
 	mmc_host_clk_hold(host);
 
 	host->ios.clock = 0;
 	host->ios.vdd = 0;
 	
-	mmc_poweroff_notify(host);
-	/*
-	 * For eMMC 4.5 device send AWAKE command before
-	 * POWER_OFF_NOTIFY command, because in sleep state
-	 * eMMC 4.5 devices respond to only RESET and AWAKE cmd
-	 */
-	if (host->card && mmc_card_is_sleep(host->card) &&
-	    host->bus_ops->resume) {
-		err = host->bus_ops->resume(host);
-
-		if (!err)
-			mmc_poweroff_notify(host);
-		else
-			pr_warning("%s: error %d during resume "
-				   "(continue with poweroff sequence)\n",
-				   mmc_hostname(host), err);
-	}
 
 	/*
 	 * Reset ocr mask to be the highest possible voltage supported for
@@ -1925,6 +1874,15 @@ int mmc_can_secure_erase_trim(struct mmc_card *card)
 }
 EXPORT_SYMBOL(mmc_can_secure_erase_trim);
 
+int mmc_can_poweroff_notify(const struct mmc_card *card)
+{
+	return card &&
+		mmc_card_mmc(card) &&
+		card->host->bus_ops->poweroff_notify &&
+		(card->poweroff_notify_state == MMC_POWERED_ON);
+}
+EXPORT_SYMBOL(mmc_can_poweroff_notify);
+
 int mmc_erase_group_aligned(struct mmc_card *card, unsigned int from,
 			    unsigned int nr)
 {
@@ -2285,8 +2243,23 @@ void mmc_rescan(struct work_struct *work)
 		wake_unlock(&host->detect_wake_lock);
 	if (host->caps & MMC_CAP_NEEDS_POLL) {
 		wake_lock(&host->detect_wake_lock);
-		mmc_schedule_delayed_work(&host->detect, HZ);
-	}
+/*set 20s scan cycle*/
+#ifndef CONFIG_HUAWEI_KERNEL
+        /*U8860-51 is set to interupt mode*/
+        if( (machine_is_msm8255_c8860()) 
+            || (machine_is_msm8255_u8860())
+            || (machine_is_msm8255_u8860_92())
+            || machine_is_msm8255_u8860_r()
+            || (machine_is_msm8255_u8860lp()))
+        {
+            mmc_schedule_delayed_work(&host->detect, MSM_SDCARD_SCAN_CYCLE*HZ);
+        }
+        else
+#endif
+        {
+            mmc_schedule_delayed_work(&host->detect, HZ);
+        }
+    }
 }
 
 void mmc_start_host(struct mmc_host *host)
@@ -2313,6 +2286,15 @@ void mmc_stop_host(struct mmc_host *host)
 
 	mmc_bus_get(host);
 	if (host->bus_ops && !host->bus_dead) {
+		mmc_claim_host(host);
+		if (mmc_can_poweroff_notify(host->card)) {
+			int err = host->bus_ops->poweroff_notify(host,
+						MMC_PW_OFF_NOTIFY_LONG);
+			if (err)
+				pr_info("%s: error [%d] in poweroff notify\n",
+					mmc_hostname(host), err);
+		}
+		mmc_release_host(host);
 		/* Calling bus_ops->remove() with a claimed host can deadlock */
 		if (host->bus_ops->remove)
 			host->bus_ops->remove(host);
@@ -2348,6 +2330,15 @@ int mmc_power_save_host(struct mmc_host *host)
 
 	if (host->bus_ops->power_save)
 		ret = host->bus_ops->power_save(host);
+	mmc_claim_host(host);
+	if (mmc_can_poweroff_notify(host->card)) {
+		int err = host->bus_ops->poweroff_notify(host,
+					MMC_PW_OFF_NOTIFY_SHORT);
+		if (err)
+			pr_info("%s: error [%d] in poweroff notify\n",
+				mmc_hostname(host), err);
+	}
+	mmc_release_host(host);
 
 	mmc_bus_put(host);
 
@@ -2390,8 +2381,11 @@ int mmc_card_awake(struct mmc_host *host)
 
 	mmc_bus_get(host);
 
-	if (host->bus_ops && !host->bus_dead && host->bus_ops->awake)
+	if (host->bus_ops && !host->bus_dead && host->bus_ops->awake) {
 		err = host->bus_ops->awake(host);
+		if (!err)
+			mmc_card_clr_sleep(host->card);
+	}
 
 	mmc_bus_put(host);
 
@@ -2408,8 +2402,11 @@ int mmc_card_sleep(struct mmc_host *host)
 
 	mmc_bus_get(host);
 
-	if (host->bus_ops && !host->bus_dead && host->bus_ops->sleep)
+	if (host->bus_ops && !host->bus_dead && host->bus_ops->sleep) {
 		err = host->bus_ops->sleep(host);
+		if (!err)
+			mmc_card_set_sleep(host->card);
+	}
 
 	mmc_bus_put(host);
 
@@ -2531,16 +2528,13 @@ int mmc_suspend_host(struct mmc_host *host)
 
 		if (!err) {
 			if (host->bus_ops->suspend) {
-				/*
-				 * For eMMC 4.5 device send notify command
-				 * before sleep, because in sleep state eMMC 4.5
-				 * devices respond to only RESET and AWAKE cmd
-				 */
-				mmc_poweroff_notify(host);
+				if (mmc_card_doing_bkops(host->card))
+					mmc_interrupt_bkops(host->card);
+
 				err = host->bus_ops->suspend(host);
 			}
 			if (!(host->card && mmc_card_sdio(host->card)))
-				mmc_do_release_host(host);
+				mmc_release_host(host);
 
 			if (err == -ENOSYS || !host->bus_ops->resume) {
 				/*
@@ -2642,13 +2636,21 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 			break;
 		}
 		host->rescan_disable = 1;
-		host->power_notify_type = MMC_HOST_PW_NOTIFY_SHORT;
 		spin_unlock_irqrestore(&host->lock, flags);
 		if (cancel_delayed_work_sync(&host->detect))
 			wake_unlock(&host->detect_wake_lock);
 
 		if (!host->bus_ops || host->bus_ops->suspend)
 			break;
+		mmc_claim_host(host);
+		if (mmc_can_poweroff_notify(host->card)) {
+			int err = host->bus_ops->poweroff_notify(host,
+						MMC_PW_OFF_NOTIFY_SHORT);
+			if (err)
+				pr_info("%s: error [%d] in poweroff notify\n",
+					mmc_hostname(host), err);
+		}
+		mmc_release_host(host);
 
 		/* Calling bus_ops->remove() with a claimed host can deadlock */
 		if (host->bus_ops->remove)
@@ -2671,7 +2673,6 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 			break;
 		}
 		host->rescan_disable = 0;
-		host->power_notify_type = MMC_HOST_PW_NOTIFY_LONG;
 		spin_unlock_irqrestore(&host->lock, flags);
 		mmc_detect_change(host, 0);
 

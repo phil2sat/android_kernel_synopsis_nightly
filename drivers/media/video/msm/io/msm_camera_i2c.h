@@ -33,6 +33,8 @@ enum msm_camera_i2c_reg_addr_type {
 struct msm_camera_i2c_client {
 	struct i2c_client *client;
 	enum msm_camera_i2c_reg_addr_type addr_type;
+	int addr_pos; //bits of i2c addr moved
+	int addr_dir; //direction of i2c addr moving, -1 for right, +1 for left, 0 for no move
 };
 
 enum msm_camera_i2c_data_type {
@@ -42,6 +44,7 @@ enum msm_camera_i2c_data_type {
 	MSM_CAMERA_I2C_UNSET_BYTE_MASK,
 	MSM_CAMERA_I2C_SET_WORD_MASK,
 	MSM_CAMERA_I2C_UNSET_WORD_MASK,
+	MSM_CAMERA_I2C_SET_BYTE_WRITE_MASK_DATA,
 };
 
 enum msm_camera_i2c_cmd_type {
@@ -54,6 +57,7 @@ struct msm_camera_i2c_reg_conf {
 	uint16_t reg_data;
 	enum msm_camera_i2c_data_type dt;
 	enum msm_camera_i2c_cmd_type cmd_type;
+	int16_t mask;
 };
 
 struct msm_camera_i2c_conf_array {

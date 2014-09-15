@@ -19,6 +19,8 @@ static struct msm_panel_common_pdata *mipi_nt35510_pdata;
 static struct dsi_buf nt35510_tx_buf;
 static struct dsi_buf nt35510_rx_buf;
 
+static int mipi_nt35510_bl_ctrl;
+
 #define NT35510_SLEEP_OFF_DELAY 150
 #define NT35510_DISPLAY_ON_DELAY 150
 
@@ -30,8 +32,8 @@ static char enter_sleep[2] = {0x10, 0x00};
 static char write_ram[2] = {0x2c, 0x00}; /* write ram */
 
 static struct dsi_cmd_desc nt35510_display_off_cmds[] = {
-	{DTYPE_DCS_WRITE, 1, 0, 0, 150, sizeof(display_off), display_off},
-	{DTYPE_DCS_WRITE, 1, 0, 0, 150, sizeof(enter_sleep), enter_sleep}
+	{DTYPE_DCS_WRITE, 1, 0, 0, 50, sizeof(display_off), display_off},
+	{DTYPE_DCS_WRITE, 1, 0, 0, 50, sizeof(enter_sleep), enter_sleep}
 };
 
 static char cmd0[6] = {
@@ -174,6 +176,9 @@ static char cmd18[2] = {
 static char cmd19[3] = {
 	0xB1, 0xEC, 0x00,
 };
+static char cmd19_rotate[3] = {
+	0xB1, 0xEC, 0x06,
+};
 static char cmd20[4] = {
 	0xBC, 0x05, 0x05, 0x05,
 };
@@ -208,42 +213,47 @@ static char cmd27[2] = {
 };
 static char config_MADCTL[2] = {0x36, 0x00};
 static struct dsi_cmd_desc nt35510_cmd_display_on_cmds[] = {
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd0), cmd0},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd1), cmd1},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd2), cmd2},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd3), cmd3},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd4), cmd4},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd5), cmd5},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd6), cmd6},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd7), cmd7},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd8), cmd8},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd9), cmd9},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd10), cmd10},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd11), cmd11},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd12), cmd12},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd13), cmd13},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd14), cmd14},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd15), cmd15},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd16), cmd16},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd17), cmd17},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd18), cmd18},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd19), cmd19},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd20), cmd20},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd21), cmd21},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd22), cmd22},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd23), cmd23},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd24), cmd24},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd25), cmd25},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd26), cmd26},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(cmd27), cmd27},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd0), cmd0},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd1), cmd1},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd2), cmd2},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd3), cmd3},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd4), cmd4},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd5), cmd5},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd6), cmd6},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd7), cmd7},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd8), cmd8},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd9), cmd9},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd10), cmd10},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd11), cmd11},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd12), cmd12},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd13), cmd13},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd14), cmd14},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd15), cmd15},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd16), cmd16},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd17), cmd17},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd18), cmd18},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd19), cmd19},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd20), cmd20},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd21), cmd21},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd22), cmd22},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd23), cmd23},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd24), cmd24},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd25), cmd25},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd26), cmd26},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(cmd27), cmd27},
 
-	{DTYPE_DCS_WRITE, 1, 0, 0, 150,	sizeof(exit_sleep), exit_sleep},
-	{DTYPE_DCS_WRITE, 1, 0, 0, 10,	sizeof(display_on), display_on},
+	{DTYPE_DCS_WRITE, 1, 0, 0, 0,	sizeof(exit_sleep), exit_sleep},
+	{DTYPE_DCS_WRITE, 1, 0, 0, 0,	sizeof(display_on), display_on},
 
-	{DTYPE_DCS_WRITE1, 1, 0, 0, 150,
+	{DTYPE_DCS_WRITE1, 1, 0, 0, 0,
 		sizeof(config_MADCTL), config_MADCTL},
 
-	{DTYPE_DCS_WRITE, 1, 0, 0, 10,	sizeof(write_ram), write_ram},
+	{DTYPE_DCS_WRITE, 1, 0, 0, 0,	sizeof(write_ram), write_ram},
+};
+
+static struct dsi_cmd_desc nt35510_cmd_display_on_cmds_rotate[] = {
+	{DTYPE_DCS_LWRITE, 1, 0, 0, 0,
+		sizeof(cmd19_rotate), cmd19_rotate},
 };
 
 static char video0[6] = {
@@ -420,34 +430,34 @@ static char video27[2] = {
 };
 static char config_video_MADCTL[2] = {0x36, 0xC0};
 static struct dsi_cmd_desc nt35510_video_display_on_cmds[] = {
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video0), video0},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video1), video1},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video2), video2},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video3), video3},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video4), video4},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video5), video5},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video6), video6},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video7), video7},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video8), video8},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video9), video9},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video10), video10},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video11), video11},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video12), video12},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video13), video13},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video14), video14},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video15), video15},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video16), video16},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video17), video17},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video18), video18},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video19), video19},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video20), video20},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video21), video21},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video22), video22},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video23), video23},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video24), video24},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video25), video25},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video26), video26},
-	{DTYPE_GEN_LWRITE, 1, 0, 0, 50, sizeof(video27), video27},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video0), video0},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video1), video1},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video2), video2},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video3), video3},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video4), video4},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video5), video5},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video6), video6},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video7), video7},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video8), video8},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video9), video9},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video10), video10},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video11), video11},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video12), video12},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video13), video13},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video14), video14},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video15), video15},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video16), video16},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video17), video17},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video18), video18},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video19), video19},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video20), video20},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video21), video21},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video22), video22},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video23), video23},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video24), video24},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video25), video25},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video26), video26},
+	{DTYPE_GEN_LWRITE, 1, 0, 0, 0, sizeof(video27), video27},
 	{DTYPE_DCS_WRITE, 1, 0, 0, NT35510_SLEEP_OFF_DELAY, sizeof(exit_sleep),
 			exit_sleep},
 	{DTYPE_DCS_WRITE, 1, 0, 0, NT35510_DISPLAY_ON_DELAY, sizeof(display_on),
@@ -455,7 +465,7 @@ static struct dsi_cmd_desc nt35510_video_display_on_cmds[] = {
 };
 
 static struct dsi_cmd_desc nt35510_video_display_on_cmds_rotate[] = {
-	{DTYPE_DCS_WRITE1, 1, 0, 0, 150,
+	{DTYPE_DCS_WRITE1, 1, 0, 0, 0,
 		sizeof(config_video_MADCTL), config_video_MADCTL},
 };
 static int mipi_nt35510_lcd_on(struct platform_device *pdev)
@@ -472,23 +482,34 @@ static int mipi_nt35510_lcd_on(struct platform_device *pdev)
 
 	mipi  = &mfd->panel_info.mipi;
 
+	if (!mfd->cont_splash_done) {
+		mfd->cont_splash_done = 1;
+		return 0;
+	}
+
 	if (mipi_nt35510_pdata && mipi_nt35510_pdata->rotate_panel)
 		rotate = mipi_nt35510_pdata->rotate_panel();
 
 	if (mipi->mode == DSI_VIDEO_MODE) {
-		mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+		mipi_dsi_cmds_tx(&nt35510_tx_buf,
 			nt35510_video_display_on_cmds,
 			ARRAY_SIZE(nt35510_video_display_on_cmds));
 
 		if (rotate) {
-			mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+			mipi_dsi_cmds_tx(&nt35510_tx_buf,
 				nt35510_video_display_on_cmds_rotate,
 			ARRAY_SIZE(nt35510_video_display_on_cmds_rotate));
 		}
 	} else if (mipi->mode == DSI_CMD_MODE) {
-		mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+		mipi_dsi_cmds_tx(&nt35510_tx_buf,
 			nt35510_cmd_display_on_cmds,
 			ARRAY_SIZE(nt35510_cmd_display_on_cmds));
+
+		if (rotate) {
+			mipi_dsi_cmds_tx(&nt35510_tx_buf,
+				nt35510_cmd_display_on_cmds_rotate,
+			ARRAY_SIZE(nt35510_cmd_display_on_cmds_rotate));
+		}
 	}
 
 	return 0;
@@ -507,15 +528,71 @@ static int mipi_nt35510_lcd_off(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf, nt35510_display_off_cmds,
+	mipi_dsi_cmds_tx(&nt35510_tx_buf, nt35510_display_off_cmds,
 			ARRAY_SIZE(nt35510_display_off_cmds));
 
 	pr_debug("mipi_nt35510_lcd_off X\n");
 	return 0;
 }
 
+static ssize_t mipi_nt35510_wta_bl_ctrl(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	ssize_t ret = strnlen(buf, PAGE_SIZE);
+	int err;
+
+	err =  kstrtoint(buf, 0, &mipi_nt35510_bl_ctrl);
+	if (err)
+		return ret;
+
+	pr_info("%s: bl ctrl set to %d\n", __func__, mipi_nt35510_bl_ctrl);
+
+	return ret;
+}
+
+static DEVICE_ATTR(bl_ctrl, S_IWUSR, NULL, mipi_nt35510_wta_bl_ctrl);
+
+static struct attribute *mipi_nt35510_fs_attrs[] = {
+	&dev_attr_bl_ctrl.attr,
+	NULL,
+};
+
+static struct attribute_group mipi_nt35510_fs_attr_group = {
+	.attrs = mipi_nt35510_fs_attrs,
+};
+
+static int mipi_nt35510_create_sysfs(struct platform_device *pdev)
+{
+	int rc;
+	struct msm_fb_data_type *mfd = platform_get_drvdata(pdev);
+
+	if (!mfd) {
+		pr_err("%s: mfd not found\n", __func__);
+		return -ENODEV;
+	}
+	if (!mfd->fbi) {
+		pr_err("%s: mfd->fbi not found\n", __func__);
+		return -ENODEV;
+	}
+	if (!mfd->fbi->dev) {
+		pr_err("%s: mfd->fbi->dev not found\n", __func__);
+		return -ENODEV;
+	}
+	rc = sysfs_create_group(&mfd->fbi->dev->kobj,
+		&mipi_nt35510_fs_attr_group);
+	if (rc) {
+		pr_err("%s: sysfs group creation failed, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	return 0;
+}
+
 static int __devinit mipi_nt35510_lcd_probe(struct platform_device *pdev)
 {
+	struct platform_device *pthisdev = NULL;
+	struct msm_fb_panel_data *pdata;
 	pr_debug("%s\n", __func__);
 
 	if (pdev->id == 0) {
@@ -525,7 +602,13 @@ static int __devinit mipi_nt35510_lcd_probe(struct platform_device *pdev)
 		return 0;
 	}
 
-	msm_fb_add_device(pdev);
+	pdata = pdev->dev.platform_data;
+	if (mipi_nt35510_pdata && mipi_nt35510_pdata->rotate_panel()
+			&& pdata->panel_info.type == MIPI_CMD_PANEL)
+		pdata->panel_info.lcd.refx100 = 6200;
+
+	pthisdev = msm_fb_add_device(pdev);
+	mipi_nt35510_create_sysfs(pthisdev);
 
 	return 0;
 }
@@ -537,6 +620,8 @@ static struct platform_driver this_driver = {
 	},
 };
 
+static int old_bl_level;
+
 static void mipi_nt35510_set_backlight(struct msm_fb_data_type *mfd)
 {
 	int bl_level;
@@ -544,11 +629,33 @@ static void mipi_nt35510_set_backlight(struct msm_fb_data_type *mfd)
 	bl_level = mfd->bl_level;
 
 	if (mipi_nt35510_pdata->bl_lock) {
-		spin_lock_irqsave(&mipi_nt35510_pdata->bl_spinlock, flags);
-		mipi_nt35510_pdata->pmic_backlight(bl_level);
-		spin_unlock_irqrestore(&mipi_nt35510_pdata->bl_spinlock, flags);
-	} else
-		mipi_nt35510_pdata->pmic_backlight(bl_level);
+		if (!mipi_nt35510_bl_ctrl) {
+			/* Level received is of range 1 to bl_max,
+			   We need to convert the levels to 1
+			   to 31 */
+			bl_level = (2 * bl_level * 31 + mfd->panel_info.bl_max)
+					/(2 * mfd->panel_info.bl_max);
+			if (bl_level == old_bl_level)
+				return;
+
+			if (bl_level == 0)
+				mipi_nt35510_pdata->backlight(0, 1);
+
+			if (old_bl_level == 0)
+				mipi_nt35510_pdata->backlight(50, 1);
+
+			spin_lock_irqsave(&mipi_nt35510_pdata->bl_spinlock,
+						flags);
+			mipi_nt35510_pdata->backlight(bl_level, 0);
+			spin_unlock_irqrestore(&mipi_nt35510_pdata->bl_spinlock,
+						flags);
+			old_bl_level = bl_level;
+		} else {
+			mipi_nt35510_pdata->backlight(bl_level, 1);
+		}
+	} else {
+		mipi_nt35510_pdata->backlight(bl_level, mipi_nt35510_bl_ctrl);
+	}
 }
 
 static struct msm_fb_panel_data nt35510_panel_data = {

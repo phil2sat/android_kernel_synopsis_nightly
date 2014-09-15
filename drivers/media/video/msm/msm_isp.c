@@ -85,8 +85,10 @@ int msm_isp_vfe_msg_to_img_mode(struct msm_cam_media_controller *pmctl,
 				int vfe_msg)
 {
 	int image_mode;
+	uint32_t vfe_output_mode = pmctl->vfe_output_mode;
+	vfe_output_mode &= ~(VFE_OUTPUTS_RDI0|VFE_OUTPUTS_RDI1);
 	if (vfe_msg == VFE_MSG_OUTPUT_PRIMARY) {
-		switch (pmctl->vfe_output_mode) {
+		switch (vfe_output_mode) {
 		case VFE_OUTPUTS_MAIN_AND_PREVIEW:
 		case VFE_OUTPUTS_MAIN_AND_VIDEO:
 		case VFE_OUTPUTS_MAIN_AND_THUMB:
@@ -110,7 +112,7 @@ int msm_isp_vfe_msg_to_img_mode(struct msm_cam_media_controller *pmctl,
 			break;
 		}
 	} else if (vfe_msg == VFE_MSG_OUTPUT_SECONDARY) {
-		switch (pmctl->vfe_output_mode) {
+		switch (vfe_output_mode) {
 		case VFE_OUTPUTS_MAIN_AND_PREVIEW:
 		case VFE_OUTPUTS_VIDEO_AND_PREVIEW:
 			image_mode = MSM_V4L2_EXT_CAPTURE_MODE_PREVIEW;
@@ -136,6 +138,16 @@ int msm_isp_vfe_msg_to_img_mode(struct msm_cam_media_controller *pmctl,
 			image_mode = -1;
 			break;
 		}
+	} else if (vfe_msg == VFE_MSG_OUTPUT_TERTIARY1) {
+		if (pmctl->vfe_output_mode & VFE_OUTPUTS_RDI0)
+			image_mode = MSM_V4L2_EXT_CAPTURE_MODE_RDI;
+		else
+			image_mode = -1;
+	} else if (vfe_msg == VFE_MSG_OUTPUT_TERTIARY2) {
+		if (pmctl->vfe_output_mode & VFE_OUTPUTS_RDI1)
+			image_mode = MSM_V4L2_EXT_CAPTURE_MODE_RDI1;
+		else
+			image_mode = -1;
 	} else
 		image_mode = -1;
 
@@ -211,9 +223,9 @@ static int msm_isp_notify_VFE_BUF_EVT(struct v4l2_subdev *sd, void *arg)
 	case VFE_MSG_V32_JPEG_CAPTURE:
 		D("%s:VFE_MSG_V32_JPEG_CAPTURE vdata->type %d\n", __func__,
 			vdata->type);
-		free_buf.num_planes = 1;
-		free_buf.ch_paddr[0] = IMEM_Y_PING_OFFSET;
-		free_buf.ch_paddr[1] = IMEM_CBCR_PING_OFFSET;
+		free_buf.num_planes = 2;
+		free_buf.ch_paddr[0] = pmctl->ping_imem_y;
+		free_buf.ch_paddr[1] = pmctl->ping_imem_cbcr;
 		cfgcmd.cmd_type = CMD_CONFIG_PING_ADDR;
 		cfgcmd.value = &vfe_id;
 		vfe_params.vfe_cfg = &cfgcmd;
@@ -222,8 +234,8 @@ static int msm_isp_notify_VFE_BUF_EVT(struct v4l2_subdev *sd, void *arg)
 			__func__, free_buf.ch_paddr[0], free_buf.ch_paddr[1]);
 		rc = v4l2_subdev_call(sd, core, ioctl, 0, &vfe_params);
 		/* Write the same buffer into PONG */
-		free_buf.ch_paddr[0] = IMEM_Y_PONG_OFFSET;
-		free_buf.ch_paddr[1] = IMEM_CBCR_PONG_OFFSET;
+		free_buf.ch_paddr[0] = pmctl->pong_imem_y;
+		free_buf.ch_paddr[1] = pmctl->pong_imem_cbcr;
 		cfgcmd.cmd_type = CMD_CONFIG_PONG_ADDR;
 		cfgcmd.value = &vfe_id;
 		vfe_params.vfe_cfg = &cfgcmd;
@@ -322,6 +334,12 @@ static int msm_isp_notify_vfe(struct v4l2_subdev *sd,
 			break;
 		case MSG_ID_OUTPUT_SECONDARY:
 			msgid = VFE_MSG_OUTPUT_SECONDARY;
+			break;
+		case MSG_ID_OUTPUT_TERTIARY1:
+			msgid = VFE_MSG_OUTPUT_TERTIARY1;
+			break;
+		case MSG_ID_OUTPUT_TERTIARY2:
+			msgid = VFE_MSG_OUTPUT_TERTIARY2;
 			break;
 		default:
 			pr_err("%s: Invalid VFE output id: %d\n",
@@ -467,19 +485,56 @@ static int msm_isp_open(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
+	rc = msm_iommu_map_contig_buffer(
+		(unsigned long)IMEM_Y_PING_OFFSET, CAMERA_DOMAIN, GEN_POOL,
+		((IMEM_Y_SIZE + IMEM_CBCR_SIZE + 4095) & (~4095)),
+		SZ_4K, IOMMU_WRITE | IOMMU_READ,
+		(unsigned long *)&mctl->ping_imem_y);
+	mctl->ping_imem_cbcr = mctl->ping_imem_y + IMEM_Y_SIZE;
+	if (rc < 0) {
+		pr_err("%s: ping iommu mapping returned error %d\n",
+			__func__, rc);
+		mctl->ping_imem_y = 0;
+		mctl->ping_imem_cbcr = 0;
+	}
+	msm_iommu_map_contig_buffer(
+		(unsigned long)IMEM_Y_PONG_OFFSET, CAMERA_DOMAIN, GEN_POOL,
+		((IMEM_Y_SIZE + IMEM_CBCR_SIZE + 4095) & (~4095)),
+		SZ_4K, IOMMU_WRITE | IOMMU_READ,
+		(unsigned long *)&mctl->pong_imem_y);
+	mctl->pong_imem_cbcr = mctl->pong_imem_y + IMEM_Y_SIZE;
+	if (rc < 0) {
+		pr_err("%s: pong iommu mapping returned error %d\n",
+			 __func__, rc);
+		mctl->pong_imem_y = 0;
+		mctl->pong_imem_cbcr = 0;
+	}
+
 	rc = msm_vfe_subdev_init(sd, mctl);
 	if (rc < 0) {
 		pr_err("%s: vfe_init failed at %d\n",
-					__func__, rc);
+			__func__, rc);
 	}
 	return rc;
 }
 
-static void msm_isp_release(
+static void msm_isp_release(struct msm_cam_media_controller *mctl,
 	struct v4l2_subdev *sd)
 {
 	D("%s\n", __func__);
 	msm_vfe_subdev_release(sd);
+	if (mctl->ping_imem_y)
+		msm_iommu_unmap_contig_buffer(mctl->ping_imem_y,
+			CAMERA_DOMAIN, GEN_POOL,
+			((IMEM_Y_SIZE + IMEM_CBCR_SIZE + 4095) & (~4095)));
+	if (mctl->pong_imem_y)
+		msm_iommu_unmap_contig_buffer(mctl->pong_imem_y,
+			CAMERA_DOMAIN, GEN_POOL,
+			((IMEM_Y_SIZE + IMEM_CBCR_SIZE + 4095) & (~4095)));
+	mctl->ping_imem_y = 0;
+	mctl->ping_imem_cbcr = 0;
+	mctl->pong_imem_y = 0;
+	mctl->pong_imem_cbcr = 0;
 }
 
 static int msm_config_vfe(struct v4l2_subdev *sd,
@@ -626,6 +681,8 @@ static int msm_axi_config(struct v4l2_subdev *sd,
 	case CMD_AXI_CFG_PRIM|CMD_AXI_CFG_SEC:
 	case CMD_AXI_CFG_PRIM|CMD_AXI_CFG_SEC_ALL_CHNLS:
 	case CMD_AXI_CFG_PRIM_ALL_CHNLS|CMD_AXI_CFG_SEC:
+	case CMD_AXI_CFG_TERT1:
+	case CMD_AXI_CFG_TERT2:
 		/* Dont need to pass buffer information.
 		 * subdev will get the buffer from media
 		 * controller free queue.

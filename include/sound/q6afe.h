@@ -68,6 +68,8 @@ enum {
 	IDX_INT_FM_TX = 29,
 	IDX_RT_PROXY_PORT_001_RX = 30,
 	IDX_RT_PROXY_PORT_001_TX = 31,
+	IDX_SECONDARY_PCM_RX = 32,
+	IDX_SECONDARY_PCM_TX = 33,
 	AFE_MAX_PORTS
 };
 
@@ -93,8 +95,7 @@ int afe_register_get_events(u16 port_id,
 int afe_unregister_get_events(u16 port_id);
 int afe_rt_proxy_port_write(u32 buf_addr_p, int bytes);
 int afe_rt_proxy_port_read(u32 buf_addr_p, int bytes);
-int afe_port_start_nowait(u16 port_id, union afe_port_config *afe_config,
-	u32 rate);
+int afe_port_start(u16 port_id, union afe_port_config *afe_config, u32 rate);
 int afe_port_stop_nowait(int port_id);
 int afe_apply_gain(u16 port_id, u16 gain);
 int afe_q6_interface_prepare(void);

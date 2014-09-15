@@ -20,6 +20,7 @@
 #include <linux/platform_device.h>
 #include <linux/spmi.h>
 #include <linux/module.h>
+#include <linux/pm_runtime.h>
 
 struct spmii_boardinfo {
 	struct list_head	list;
@@ -237,6 +238,7 @@ struct spmi_device *spmi_new_device(struct spmi_controller *ctrl,
 	spmidev->dev.platform_data = (void *)info->platform_data;
 	spmidev->num_dev_node = info->num_dev_node;
 	spmidev->dev_node = info->dev_node;
+	spmidev->res = info->res;
 
 	rc = spmi_add_device(spmidev);
 	if (rc < 0) {

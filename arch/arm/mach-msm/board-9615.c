@@ -45,13 +45,14 @@
 #include <mach/msm_memtypes.h>
 #include <mach/cpuidle.h>
 #include <mach/usb_bam.h>
+#include <mach/restart.h>
 #include "timer.h"
 #include "devices.h"
 #include "board-9615.h"
 #include "pm.h"
-#include "acpuclock.h"
 #include "pm-boot.h"
 #include <mach/gpiomux.h>
+#include "ci13xxx_udc.h"
 
 #ifdef CONFIG_ION_MSM
 #define MSM_ION_AUDIO_SIZE	0xAF000
@@ -194,7 +195,8 @@ struct pm8xxx_mpp_init {
 
 /* Initial PM8018 GPIO configurations */
 static struct pm8xxx_gpio_init pm8018_gpios[] __initdata = {
-	PM8018_GPIO_OUTPUT(2,	0,	HIGH) /* EXT_LDO_EN_WLAN */
+	PM8018_GPIO_OUTPUT(2,	0,	HIGH), /* EXT_LDO_EN_WLAN */
+	PM8018_GPIO_OUTPUT(6,	0,	LOW), /* WLAN_CLK_PWR_REQ */
 };
 
 /* Initial PM8018 MPP configurations */
@@ -470,14 +472,6 @@ static struct i2c_board_info wcd9xxx_device_info[] __initdata = {
 	},
 };
 
-static struct i2c_registry msm9615_i2c_devices[] __initdata = {
-	{
-		I2C_SURF | I2C_FFA | I2C_FLUID,
-		MSM_9615_GSBI5_QUP_I2C_BUS_ID,
-		wcd9xxx_device_info,
-		ARRAY_SIZE(wcd9xxx_device_info),
-	},
-};
 /*
  * MDM9x15 I2S.
  */
@@ -559,6 +553,17 @@ static struct slim_device msm_slim_tabla20 = {
 	},
 };
 #endif
+
+static struct i2c_registry msm9615_i2c_devices[] __initdata = {
+#ifdef CONFIG_WCD9310_CODEC
+	{
+		I2C_SURF | I2C_FFA | I2C_FLUID,
+		MSM_9615_GSBI5_QUP_I2C_BUS_ID,
+		wcd9xxx_device_info,
+		ARRAY_SIZE(wcd9xxx_device_info),
+	},
+#endif
+};
 
 static struct slim_boardinfo msm_slim_devices[] = {
 	/* add slimbus slaves as needed */
@@ -755,10 +760,22 @@ static struct msm_otg_platform_data msm_otg_pdata = {
 	.vbus_power		= msm_hsusb_vbus_power,
 	.disable_reset_on_disconnect	= true,
 	.enable_lpm_on_dev_suspend	= true,
+	.core_clk_always_on_workaround = true,
 };
 
-static struct msm_hsic_peripheral_platform_data msm_hsic_peripheral_pdata = {
-	.keep_core_clk_on_suspend_workaround = true,
+
+static struct ci13xxx_platform_data msm_peripheral_pdata = {
+	.usb_core_id = 0,
+};
+
+static struct msm_hsic_peripheral_platform_data
+			msm_hsic_peripheral_pdata_private = {
+	.core_clk_always_on_workaround = true,
+};
+
+static struct ci13xxx_platform_data msm_hsic_peripheral_pdata = {
+	.usb_core_id = 1,
+	.prv_data = &msm_hsic_peripheral_pdata_private,
 };
 
 #define PID_MAGIC_ID		0x71432909
@@ -846,6 +863,7 @@ static struct platform_device msm_tsens_device = {
 };
 
 static struct platform_device *common_devices[] = {
+	&msm9615_device_acpuclk,
 	&msm9615_device_dmov,
 	&msm_device_smd,
 #ifdef CONFIG_LTC4088_CHARGER
@@ -858,6 +876,7 @@ static struct platform_device *common_devices[] = {
 	&msm_device_hsic_host,
 	&msm_device_usb_bam,
 	&msm_android_usb_device,
+	&msm_android_usb_hsic_device,
 	&msm9615_device_uart_gsbi4,
 	&msm9615_device_ext_2p95v_vreg,
 	&msm9615_device_ssbi_pmic1,
@@ -896,6 +915,8 @@ static struct platform_device *common_devices[] = {
 	&msm_pcm_afe,
 	&msm_cpudai_auxpcm_rx,
 	&msm_cpudai_auxpcm_tx,
+	&msm_cpudai_sec_auxpcm_rx,
+	&msm_cpudai_sec_auxpcm_tx,
 
 #if defined(CONFIG_CRYPTO_DEV_QCRYPTO) || \
 		defined(CONFIG_CRYPTO_DEV_QCRYPTO_MODULE)
@@ -951,6 +972,8 @@ static void __init msm9615_common_init(void)
 {
 	struct android_usb_platform_data *android_pdata =
 				msm_android_usb_device.dev.platform_data;
+	struct android_usb_platform_data *android_hsic_pdata =
+				msm_android_usb_hsic_device.dev.platform_data;
 
 	msm9615_device_init();
 	msm9615_init_gpiomux();
@@ -968,12 +991,13 @@ static void __init msm9615_common_init(void)
 
 	msm_device_otg.dev.platform_data = &msm_otg_pdata;
 	msm_otg_pdata.phy_init_seq = shelby_phy_init_seq;
+	msm_device_gadget_peripheral.dev.platform_data =
+		&msm_peripheral_pdata;
 	msm_device_hsic_peripheral.dev.platform_data =
 		&msm_hsic_peripheral_pdata;
 	msm_device_usb_bam.dev.platform_data = &msm_usb_bam_pdata;
 	platform_add_devices(common_devices, ARRAY_SIZE(common_devices));
 	msm9615_pm8xxx_gpio_mpp_init();
-	acpuclk_init(&acpuclk_9615_soc_data);
 
 	/* Ensure ar6000pm device is registered before MMC/SDC */
 	msm9615_init_ar6000pm();
@@ -981,8 +1005,12 @@ static void __init msm9615_common_init(void)
 	msm9615_init_mmc();
 	slim_register_board_info(msm_slim_devices,
 		ARRAY_SIZE(msm_slim_devices));
+
 	android_pdata->update_pid_and_serial_num =
 					usb_diag_update_pid_and_serial_num;
+	android_hsic_pdata->update_pid_and_serial_num =
+					usb_diag_update_pid_and_serial_num;
+
 	msm_pm_boot_pdata.p_addr = allocate_contiguous_ebi_nomap(SZ_8, SZ_64K);
 	BUG_ON(msm_pm_boot_init(&msm_pm_boot_pdata));
 	msm_tsens_early_init(&msm_tsens_pdata);
@@ -1018,6 +1046,7 @@ MACHINE_START(MSM9615_CDP, "QCT MSM9615 CDP")
 #ifdef CONFIG_FB_MSM
 	.init_early = mdm9615_allocate_memory_regions,
 #endif
+	.restart = msm_restart,
 MACHINE_END
 
 MACHINE_START(MSM9615_MTP, "QCT MSM9615 MTP")
@@ -1027,4 +1056,5 @@ MACHINE_START(MSM9615_MTP, "QCT MSM9615 MTP")
 	.timer = &msm_timer,
 	.init_machine = msm9615_mtp_init,
 	.reserve = msm9615_reserve,
+	.restart = msm_restart,
 MACHINE_END

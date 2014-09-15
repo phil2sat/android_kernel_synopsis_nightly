@@ -160,7 +160,6 @@ static struct msm_clock msm_clocks[] = {
 			.rating         = 200,
 			.read           = msm_gpt_read,
 			.mask           = CLOCKSOURCE_MASK(32),
-			.shift          = 17,
 			.flags          = CLOCK_SOURCE_IS_CONTINUOUS,
 		},
 		.irq = INT_GP_TIMER_EXP,
@@ -183,7 +182,6 @@ static struct msm_clock msm_clocks[] = {
 			.rating         = DG_TIMER_RATING,
 			.read           = msm_dgt_read,
 			.mask           = CLOCKSOURCE_MASK(32),
-			.shift          = 24,
 			.flags          = CLOCK_SOURCE_IS_CONTINUOUS,
 		},
 		.irq = INT_DEBUG_TIMER_EXP,
@@ -324,6 +322,7 @@ static void msm_timer_set_mode(enum clock_event_mode mode,
 			       struct clock_event_device *evt)
 {
 	struct msm_clock *clock;
+	struct msm_clock **cur_clock;
 	struct msm_clock_percpu_data *clock_state, *gpt_state;
 	unsigned long irq_flags;
 	struct irq_chip *chip;
@@ -356,7 +355,9 @@ static void msm_timer_set_mode(enum clock_event_mode mode,
 		break;
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_SHUTDOWN:
-		get_cpu_var(msm_active_clock) = NULL;
+		cur_clock = &get_cpu_var(msm_active_clock);
+		if (*cur_clock == clock)
+			*cur_clock = NULL;
 		put_cpu_var(msm_active_clock);
 		clock_state->in_sync = 0;
 		clock_state->stopped = 1;
@@ -963,8 +964,8 @@ int __cpuinit local_timer_setup(struct clock_event_device *evt)
 	if (!smp_processor_id())
 		return 0;
 
-	if (cpu_is_msm8x60() || cpu_is_msm8960() || cpu_is_apq8064()
-			|| cpu_is_msm8930())
+	if (cpu_is_msm8x60() || cpu_is_msm8960() || cpu_is_apq8064() ||
+	    cpu_is_msm8930() || cpu_is_msm8930aa() || cpu_is_msm8627())
 		__raw_writel(DGT_CLK_CTL_DIV_4, MSM_TMR_BASE + DGT_CLK_CTL);
 
 	if (__get_cpu_var(first_boot)) {
@@ -1024,7 +1025,6 @@ static void __init msm_timer_init(void)
 		dgt->freq = 19200000 >> MSM_DGT_SHIFT;
 		dgt->clockevent.shift = 32 + MSM_DGT_SHIFT;
 		dgt->clocksource.mask = CLOCKSOURCE_MASK(32 - MSM_DGT_SHIFT);
-		dgt->clocksource.shift = 24 - MSM_DGT_SHIFT;
 		gpt->regbase = MSM_TMR_BASE;
 		dgt->regbase = MSM_TMR_BASE + 0x10;
 		gpt->flags |= MSM_CLOCK_FLAGS_UNSTABLE_COUNT
@@ -1061,7 +1061,8 @@ static void __init msm_timer_init(void)
 		sclk_hz = 32765;
 		gpt->flags |= MSM_CLOCK_FLAGS_UNSTABLE_COUNT;
 		dgt->flags |= MSM_CLOCK_FLAGS_UNSTABLE_COUNT;
-	} else if (cpu_is_msm8960() || cpu_is_apq8064() || cpu_is_msm8930()) {
+	} else if (cpu_is_msm8960() || cpu_is_apq8064() || cpu_is_msm8930() ||
+		   cpu_is_msm8930aa() || cpu_is_msm8627()) {
 		global_timer_offset = MSM_TMR0_BASE - MSM_TMR_BASE;
 		dgt->freq = 6750000;
 		__raw_writel(DGT_CLK_CTL_DIV_4, MSM_TMR_BASE + DGT_CLK_CTL);
@@ -1070,7 +1071,8 @@ static void __init msm_timer_init(void)
 		gpt->freq = 32765;
 		gpt_hz = 32765;
 		sclk_hz = 32765;
-		if (!cpu_is_msm8930()) {
+		if (!cpu_is_msm8930() && !cpu_is_msm8930aa() &&
+		    !cpu_is_msm8627()) {
 			gpt->flags |= MSM_CLOCK_FLAGS_UNSTABLE_COUNT;
 			dgt->flags |= MSM_CLOCK_FLAGS_UNSTABLE_COUNT;
 		}
@@ -1114,16 +1116,15 @@ static void __init msm_timer_init(void)
 			clockevent_delta2ns(clock->write_delay + 4, ce);
 		ce->cpumask = cpumask_of(0);
 
-		cs->mult = clocksource_hz2mult(clock->freq, cs->shift);
-		res = clocksource_register(cs);
+		res = clocksource_register_hz(cs, clock->freq);
 		if (res)
 			printk(KERN_ERR "msm_timer_init: clocksource_register "
 			       "failed for %s\n", cs->name);
 
 		ce->irq = clock->irq;
 		if (cpu_is_msm8x60() || cpu_is_msm8960() || cpu_is_apq8064() ||
-				cpu_is_msm8930() || cpu_is_msm9615() ||
-				cpu_is_msm8625()) {
+		    cpu_is_msm8930() || cpu_is_msm8930aa() ||
+		    cpu_is_msm9615() || cpu_is_msm8625() || cpu_is_msm8627()) {
 			clock->percpu_evt = alloc_percpu(struct clock_event_device *);
 			if (!clock->percpu_evt) {
 				pr_err("msm_timer_init: memory allocation "

@@ -235,6 +235,36 @@ static int mmc_get_ext_csd(struct mmc_card *card, u8 **new_ext_csd)
 	return err;
 }
 
+static void mmc_select_card_type(struct mmc_card *card)
+{
+	struct mmc_host *host = card->host;
+	u8 card_type = card->ext_csd.raw_card_type & EXT_CSD_CARD_TYPE_MASK;
+	unsigned int caps = host->caps, caps2 = host->caps2;
+	unsigned int hs_max_dtr = 0;
+
+	if (card_type & EXT_CSD_CARD_TYPE_26)
+		hs_max_dtr = MMC_HIGH_26_MAX_DTR;
+
+	if (caps & MMC_CAP_MMC_HIGHSPEED &&
+			card_type & EXT_CSD_CARD_TYPE_52)
+		hs_max_dtr = MMC_HIGH_52_MAX_DTR;
+
+	if ((caps & MMC_CAP_1_8V_DDR &&
+			card_type & EXT_CSD_CARD_TYPE_DDR_1_8V) ||
+	    (caps & MMC_CAP_1_2V_DDR &&
+			card_type & EXT_CSD_CARD_TYPE_DDR_1_2V))
+		hs_max_dtr = MMC_HIGH_DDR_MAX_DTR;
+
+	if ((caps2 & MMC_CAP2_HS200_1_8V_SDR &&
+			card_type & EXT_CSD_CARD_TYPE_SDR_1_8V) ||
+	    (caps2 & MMC_CAP2_HS200_1_2V_SDR &&
+			card_type & EXT_CSD_CARD_TYPE_SDR_1_2V))
+		hs_max_dtr = MMC_HS200_MAX_DTR;
+
+	card->ext_csd.hs_max_dtr = hs_max_dtr;
+	card->ext_csd.card_type = card_type;
+}
+
 /*
  * Decode extended CSD.
  */
@@ -284,56 +314,9 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		if (card->ext_csd.sectors > (2u * 1024 * 1024 * 1024) / 512)
 			mmc_card_set_blockaddr(card);
 	}
+
 	card->ext_csd.raw_card_type = ext_csd[EXT_CSD_CARD_TYPE];
-	switch (ext_csd[EXT_CSD_CARD_TYPE] & EXT_CSD_CARD_TYPE_MASK) {
-	case EXT_CSD_CARD_TYPE_SDR_ALL:
-	case EXT_CSD_CARD_TYPE_SDR_ALL_DDR_1_8V:
-	case EXT_CSD_CARD_TYPE_SDR_ALL_DDR_1_2V:
-	case EXT_CSD_CARD_TYPE_SDR_ALL_DDR_52:
-		card->ext_csd.hs_max_dtr = 200000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_SDR_200;
-		break;
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_ALL:
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_DDR_1_8V:
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_DDR_1_2V:
-	case EXT_CSD_CARD_TYPE_SDR_1_2V_DDR_52:
-		card->ext_csd.hs_max_dtr = 200000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_SDR_1_2V;
-		break;
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_ALL:
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_DDR_1_8V:
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_DDR_1_2V:
-	case EXT_CSD_CARD_TYPE_SDR_1_8V_DDR_52:
-		card->ext_csd.hs_max_dtr = 200000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_SDR_1_8V;
-		break;
-	case EXT_CSD_CARD_TYPE_DDR_52 | EXT_CSD_CARD_TYPE_52 |
-	     EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_DDR_52;
-		break;
-	case EXT_CSD_CARD_TYPE_DDR_1_2V | EXT_CSD_CARD_TYPE_52 |
-	     EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_DDR_1_2V;
-		break;
-	case EXT_CSD_CARD_TYPE_DDR_1_8V | EXT_CSD_CARD_TYPE_52 |
-	     EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		card->ext_csd.card_type = EXT_CSD_CARD_TYPE_DDR_1_8V;
-		break;
-	case EXT_CSD_CARD_TYPE_52 | EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 52000000;
-		break;
-	case EXT_CSD_CARD_TYPE_26:
-		card->ext_csd.hs_max_dtr = 26000000;
-		break;
-	default:
-		/* MMC v4 spec says this cannot happen */
-		pr_warning("%s: card is mmc v4 but doesn't "
-			"support any high-speed modes.\n",
-			mmc_hostname(card->host));
-	}
+	mmc_select_card_type(card);
 
 	card->ext_csd.raw_s_a_timeout = ext_csd[EXT_CSD_S_A_TIMEOUT];
 	card->ext_csd.raw_erase_timeout_mult =
@@ -628,6 +611,26 @@ out:
 	mmc_free_ext_csd(bw_ext_csd);
 	return err;
 }
+#ifdef CONFIG_HUAWEI_KERNEL 
+static ssize_t mmc_samsung_smart(struct device *dev, 
+                                            struct device_attribute *attr, char *buf) 
+{ 
+    struct mmc_card *card = mmc_dev_to_card(dev); 
+    unsigned int size = PAGE_SIZE; 
+    unsigned int wrote; 
+
+    if (card->quirks & MMC_QUIRK_SAMSUNG_SMART) 
+    {
+        return mmc_samsung_smart_handle(card, buf); 
+    }
+    else
+    {
+        wrote = scnprintf(buf, size, "This eMMC is not provided by Samsung, only Samsung eMMC support this feature!\n"); 
+        return wrote;
+    }
+} 
+static DEVICE_ATTR(samsung_smart, S_IRUGO, mmc_samsung_smart, NULL); 
+#endif /* CONFIG_HUAWEI_KERNEL */ 
 
 MMC_DEV_ATTR(cid, "%08x%08x%08x%08x\n", card->raw_cid[0], card->raw_cid[1],
 	card->raw_cid[2], card->raw_cid[3]);
@@ -660,6 +663,9 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_serial.attr,
 	&dev_attr_enhanced_area_offset.attr,
 	&dev_attr_enhanced_area_size.attr,
+#ifdef CONFIG_HUAWEI_KERNEL 
+    &dev_attr_samsung_smart.attr, 
+#endif 
 	NULL,
 };
 
@@ -834,6 +840,15 @@ err:
 	return err;
 }
 
+#ifdef CONFIG_HUAWEI_KERNEL 
+static const struct mmc_fixup mmc_fixups[] = { 
+    /* Provide access to Samsung's e-MMC Smart Report via sysfs */
+    MMC_FIXUP(CID_NAME_ANY, 0x15, CID_OEMID_ANY, add_quirk_mmc, MMC_QUIRK_SAMSUNG_SMART), 
+
+    END_FIXUP 
+    }; 
+#endif 
+
 /*
  * Handle the detection and initialisation of a card.
  *
@@ -940,6 +955,13 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		err = mmc_decode_cid(card);
 		if (err)
 			goto free_card;
+
+#ifdef CONFIG_HUAWEI_KERNEL 
+        /* Detect on first access quirky cards that need help when 
+         * powered-on 
+         */ 
+        mmc_fixup_device(card, mmc_fixups);   
+#endif
 	}
 
 	/*
@@ -1089,6 +1111,10 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		max_dtr = card->csd.max_dtr;
 	}
 
+#ifdef CONFIG_HUAWEI_KERNEL
+	/* Set clk to 26MHz to fix hynix emmc CMD6 timeout issue. */
+	mmc_set_clock(host, MMC_HIGH_26_MAX_DTR);
+#endif
 	mmc_set_clock(host, max_dtr);
 
 	/*
@@ -1344,6 +1370,40 @@ err:
 	return err;
 }
 
+static int mmc_poweroff_notify(struct mmc_host *host, int notify)
+{
+	struct mmc_card *card;
+	unsigned int timeout;
+	unsigned int notify_type = EXT_CSD_NO_POWER_NOTIFICATION;
+	int err;
+
+	card = host->card;
+
+	if (notify == MMC_PW_OFF_NOTIFY_SHORT) {
+		notify_type = EXT_CSD_POWER_OFF_SHORT;
+		timeout = card->ext_csd.generic_cmd6_time;
+	} else if (notify == MMC_PW_OFF_NOTIFY_LONG) {
+		notify_type = EXT_CSD_POWER_OFF_LONG;
+		timeout = card->ext_csd.power_off_longtime;
+	} else {
+		pr_info("%s: mmc_poweroff_notify called "
+		        "with notify type %d\n", mmc_hostname(host), notify);
+		return -EINVAL;
+	}
+
+	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+			 EXT_CSD_POWER_OFF_NOTIFICATION,
+			 notify_type, timeout);
+
+	if (err)
+		pr_err("%s: Device failed to respond within %d "
+		       "poweroff timeout.\n", mmc_hostname(host), timeout);
+	else
+		card->poweroff_notify_state =
+					MMC_NO_POWER_NOTIFICATION;
+
+	return err;
+}
 /*
  * Host is being removed. Free up the current card.
  */
@@ -1397,6 +1457,19 @@ static void mmc_detect(struct mmc_host *host)
 }
 
 /*
+ * Restore ios setting
+ */
+#ifndef CONFIG_HUAWEI_KERNEL
+static void mmc_restore_ios(struct mmc_host *host)
+{
+	BUG_ON(!host);
+
+	memcpy(&host->ios, &host->saved_ios, sizeof(struct mmc_ios));
+	mmc_set_ios(host);
+}
+#endif
+
+/*
  * Suspend callback from host.
  */
 static int mmc_suspend(struct mmc_host *host)
@@ -1407,13 +1480,26 @@ static int mmc_suspend(struct mmc_host *host)
 	BUG_ON(!host->card);
 
 	mmc_claim_host(host);
-	if (mmc_card_can_sleep(host)) {
-		err = mmc_card_sleep(host);
-		if (!err)
-			mmc_card_set_sleep(host->card);
-	} else if (!mmc_host_is_spi(host))
-		mmc_deselect_cards(host);
-	host->card->state &= ~(MMC_STATE_HIGHSPEED | MMC_STATE_HIGHSPEED_200);
+	if (mmc_can_poweroff_notify(host->card) &&
+		(host->caps2 & MMC_CAP2_POWER_OFF_VCCQ_DURING_SUSPEND)) {
+		err = mmc_poweroff_notify(host, MMC_PW_OFF_NOTIFY_SHORT);
+	} else {
+		if (mmc_card_can_sleep(host))
+			/*
+			 * If sleep command has error it doesn't mean host
+			 * cannot suspend, but a deeper low power state
+			 * transition for the card has failed. Ignore
+			 * sleep errors so that the suspend is not aborted.
+			 * In error case, mmc_resume() takes care of
+			 * complete intialization of the card.
+			 */
+			mmc_card_sleep(host);
+		else if (!mmc_host_is_spi(host))
+			mmc_deselect_cards(host);
+	}
+	if (!err)
+		host->card->state &=
+			~(MMC_STATE_HIGHSPEED | MMC_STATE_HIGHSPEED_200);
 	mmc_release_host(host);
 
 	return err;
@@ -1433,11 +1519,19 @@ static int mmc_resume(struct mmc_host *host)
 	BUG_ON(!host->card);
 
 	mmc_claim_host(host);
+	
+	/*Hynic mmc cannot wakeup using awake function, fix it temporarily*/
+#ifndef CONFIG_HUAWEI_KERNEL
+	
 	if (mmc_card_is_sleep(host->card)) {
+		mmc_restore_ios(host);
 		err = mmc_card_awake(host);
-		mmc_card_clr_sleep(host->card);
 	} else
 		err = mmc_init_card(host, host->ocr, host->card);
+#else
+	printk("call mmc_init_card instead of awake\n");
+	err = mmc_init_card(host, host->ocr, host->card);
+#endif
 	mmc_release_host(host);
 
 	return err;
@@ -1464,7 +1558,7 @@ static int mmc_sleep(struct mmc_host *host)
 	if (card && card->ext_csd.rev >= 3) {
 		err = mmc_card_sleepawake(host, 1);
 		if (err < 0)
-			pr_debug("%s: Error %d while putting card into sleep",
+			pr_warn("%s: Error %d while putting card into sleep",
 				 mmc_hostname(host), err);
 	}
 
@@ -1495,6 +1589,7 @@ static const struct mmc_bus_ops mmc_ops = {
 	.resume = NULL,
 	.power_restore = mmc_power_restore,
 	.alive = mmc_alive,
+	.poweroff_notify = mmc_poweroff_notify,
 };
 
 static const struct mmc_bus_ops mmc_ops_unsafe = {
@@ -1506,6 +1601,7 @@ static const struct mmc_bus_ops mmc_ops_unsafe = {
 	.resume = mmc_resume,
 	.power_restore = mmc_power_restore,
 	.alive = mmc_alive,
+	.poweroff_notify = mmc_poweroff_notify,
 };
 
 static void mmc_attach_bus_ops(struct mmc_host *host)

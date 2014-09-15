@@ -65,7 +65,7 @@ struct workqueue_struct *ssr_wq;
 
 static LIST_HEAD(restart_log_list);
 static LIST_HEAD(subsystem_list);
-static DEFINE_MUTEX(subsystem_list_lock);
+static DEFINE_SPINLOCK(subsystem_list_lock);
 static DEFINE_MUTEX(soc_order_reg_lock);
 static DEFINE_MUTEX(restart_log_mutex);
 
@@ -92,6 +92,9 @@ DEFINE_SINGLE_RESTART_ORDER(orders_8x60_modems, _order_8x60_modems);
 
 /* MSM 8960 restart ordering info */
 static const char * const order_8960[] = {"modem", "lpass"};
+/*SGLTE restart ordering info*/
+static const char * const order_8960_sglte[] = {"external_modem",
+						"modem"};
 
 static struct subsys_soc_restart_order restart_orders_8960_one = {
 	.subsystem_list = order_8960,
@@ -99,9 +102,19 @@ static struct subsys_soc_restart_order restart_orders_8960_one = {
 	.subsys_ptrs = {[ARRAY_SIZE(order_8960)] = NULL}
 	};
 
+static struct subsys_soc_restart_order restart_orders_8960_fusion_sglte = {
+	.subsystem_list = order_8960_sglte,
+	.count = ARRAY_SIZE(order_8960_sglte),
+	.subsys_ptrs = {[ARRAY_SIZE(order_8960_sglte)] = NULL}
+	};
+
 static struct subsys_soc_restart_order *restart_orders_8960[] = {
 	&restart_orders_8960_one,
-};
+	};
+
+static struct subsys_soc_restart_order *restart_orders_8960_sglte[] = {
+	&restart_orders_8960_fusion_sglte,
+	};
 
 /* These will be assigned to one of the sets above after
  * runtime SoC identification.
@@ -157,15 +170,16 @@ module_param_call(restart_level, restart_level_set, param_get_int,
 static struct subsys_data *_find_subsystem(const char *subsys_name)
 {
 	struct subsys_data *subsys;
+	unsigned long flags;
 
-	mutex_lock(&subsystem_list_lock);
+	spin_lock_irqsave(&subsystem_list_lock, flags);
 	list_for_each_entry(subsys, &subsystem_list, list)
 		if (!strncmp(subsys->name, subsys_name,
 				SUBSYS_NAME_MAX_LENGTH)) {
-			mutex_unlock(&subsystem_list_lock);
+			spin_unlock_irqrestore(&subsystem_list_lock, flags);
 			return subsys;
 		}
-	mutex_unlock(&subsystem_list_lock);
+	spin_unlock_irqrestore(&subsystem_list_lock, flags);
 
 	return NULL;
 }
@@ -488,6 +502,8 @@ EXPORT_SYMBOL(subsystem_restart);
 
 int ssr_register_subsystem(struct subsys_data *subsys)
 {
+	unsigned long flags;
+
 	if (!subsys)
 		goto err;
 
@@ -504,9 +520,9 @@ int ssr_register_subsystem(struct subsys_data *subsys)
 	mutex_init(&subsys->shutdown_lock);
 	mutex_init(&subsys->powerup_lock);
 
-	mutex_lock(&subsystem_list_lock);
+	spin_lock_irqsave(&subsystem_list_lock, flags);
 	list_add(&subsys->list, &subsystem_list);
-	mutex_unlock(&subsystem_list_lock);
+	spin_unlock_irqrestore(&subsystem_list_lock, flags);
 
 	return 0;
 
@@ -552,10 +568,20 @@ static int __init ssr_init_soc_restart_orders(void)
 		n_restart_orders = ARRAY_SIZE(orders_8x60_all);
 	}
 
-	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm9615() ||
-			cpu_is_apq8064()) {
-		restart_orders = restart_orders_8960;
-		n_restart_orders = ARRAY_SIZE(restart_orders_8960);
+	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm8930aa() ||
+	    cpu_is_msm9615() || cpu_is_apq8064() || cpu_is_msm8627()) {
+		if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_SGLTE) {
+			restart_orders = restart_orders_8960_sglte;
+			n_restart_orders =
+				ARRAY_SIZE(restart_orders_8960_sglte);
+		} else {
+			restart_orders = restart_orders_8960;
+			n_restart_orders = ARRAY_SIZE(restart_orders_8960);
+		}
+		for (i = 0; i < n_restart_orders; i++) {
+			mutex_init(&restart_orders[i]->powerup_lock);
+			mutex_init(&restart_orders[i]->shutdown_lock);
+		}
 	}
 
 	if (restart_orders == NULL || n_restart_orders < 1) {

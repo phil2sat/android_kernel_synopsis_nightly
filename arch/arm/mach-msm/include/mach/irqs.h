@@ -41,7 +41,7 @@
 #define NR_MSM_IRQS 288
 #define NR_GPIO_IRQS 152
 #define NR_PM8921_IRQS 256
-#define NR_PM8821_IRQS 64
+#define NR_PM8821_IRQS 112
 #define NR_WCD9XXX_IRQS 49
 #define NR_TABLA_IRQS NR_WCD9XXX_IRQS
 #define NR_GPIO_EXPANDER_IRQS 64
@@ -58,8 +58,8 @@
 
 #else
 
-#if defined(CONFIG_ARCH_MSMCOPPER)
-#include "irqs-copper.h"
+#if defined(CONFIG_ARCH_MSM8974)
+#include "irqs-8974.h"
 #elif defined(CONFIG_ARCH_MSM9615)
 #include "irqs-9615.h"
 #elif defined(CONFIG_ARCH_MSM9625)

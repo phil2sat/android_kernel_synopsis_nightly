@@ -43,6 +43,7 @@
 #define NUM_SMD_PKT_PORTS 15
 #endif
 
+#define PDRIVER_NAME_MAX_SIZE 32
 #define LOOPBACK_INX (NUM_SMD_PKT_PORTS - 1)
 
 #define DEVICE_NAME "smdpkt"
@@ -52,6 +53,7 @@ struct smd_pkt_dev {
 	struct cdev cdev;
 	struct device *devicep;
 	void *pil;
+	char pdriver_name[PDRIVER_NAME_MAX_SIZE];
 	struct platform_driver driver;
 
 	struct smd_channel *ch;
@@ -76,6 +78,7 @@ struct smd_pkt_dev {
 	struct wake_lock pa_wake_lock;		/* Packet Arrival Wake lock*/
 	struct work_struct packet_arrival_work;
 	struct spinlock pa_spinlock;
+	int wakelock_locked;
 } *smd_pkt_devp[NUM_SMD_PKT_PORTS];
 
 struct class *smd_pkt_classp;
@@ -233,16 +236,19 @@ static void loopback_probe_worker(struct work_struct *work)
 static void packet_arrival_worker(struct work_struct *work)
 {
 	struct smd_pkt_dev *smd_pkt_devp;
+	unsigned long flags;
 
 	smd_pkt_devp = container_of(work, struct smd_pkt_dev,
 				    packet_arrival_work);
 	mutex_lock(&smd_pkt_devp->ch_lock);
-	if (smd_pkt_devp->ch) {
+	spin_lock_irqsave(&smd_pkt_devp->pa_spinlock, flags);
+	if (smd_pkt_devp->ch && smd_pkt_devp->wakelock_locked) {
 		D_READ("%s locking smd_pkt_dev id:%d wakelock\n",
 			__func__, smd_pkt_devp->i);
 		wake_lock_timeout(&smd_pkt_devp->pa_wake_lock,
 				  WAKELOCK_TIMEOUT);
 	}
+	spin_unlock_irqrestore(&smd_pkt_devp->pa_spinlock, flags);
 	mutex_unlock(&smd_pkt_devp->ch_lock);
 }
 
@@ -398,6 +404,7 @@ wait_for_packet:
 	if (smd_pkt_devp->poll_mode &&
 	    !smd_cur_packet_size(smd_pkt_devp->ch)) {
 		wake_unlock(&smd_pkt_devp->pa_wake_lock);
+		smd_pkt_devp->wakelock_locked = 0;
 		smd_pkt_devp->poll_mode = 0;
 		D_READ("%s unlocked smd_pkt_dev id:%d wakelock\n",
 			__func__, smd_pkt_devp->i);
@@ -570,10 +577,11 @@ static void check_and_wakeup_reader(struct smd_pkt_dev *smd_pkt_devp)
 	}
 
 	/* here we have a packet of size sz ready */
-	wake_up(&smd_pkt_devp->ch_read_wait_queue);
 	spin_lock_irqsave(&smd_pkt_devp->pa_spinlock, flags);
 	wake_lock(&smd_pkt_devp->pa_wake_lock);
+	smd_pkt_devp->wakelock_locked = 1;
 	spin_unlock_irqrestore(&smd_pkt_devp->pa_spinlock, flags);
+	wake_up(&smd_pkt_devp->ch_read_wait_queue);
 	schedule_work(&smd_pkt_devp->packet_arrival_work);
 	D_READ("%s: wake_up smd_pkt_dev id:%d\n", __func__, smd_pkt_devp->i);
 }
@@ -723,7 +731,10 @@ static int smd_pkt_dummy_probe(struct platform_device *pdev)
 	int i;
 
 	for (i = 0; i < NUM_SMD_PKT_PORTS; i++) {
-		if (!strncmp(pdev->name, smd_ch_name[i], SMD_MAX_CH_NAME_LEN)) {
+		if (smd_ch_edge[i] == pdev->id
+		    && !strncmp(pdev->name, smd_ch_name[i],
+				SMD_MAX_CH_NAME_LEN)
+		    && smd_pkt_devp[i]->driver.probe) {
 			complete_all(&smd_pkt_devp[i]->ch_allocated);
 			D_STATUS("%s allocated SMD ch for smd_pkt_dev id:%d\n",
 				 __func__, i);
@@ -756,18 +767,19 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 	}
 	D_STATUS("Begin %s on smd_pkt_dev id:%d\n", __func__, smd_pkt_devp->i);
 
-	wake_lock_init(&smd_pkt_devp->pa_wake_lock, WAKE_LOCK_SUSPEND,
-			smd_pkt_dev_name[smd_pkt_devp->i]);
-	INIT_WORK(&smd_pkt_devp->packet_arrival_work, packet_arrival_worker);
-
 	file->private_data = smd_pkt_devp;
 
 	mutex_lock(&smd_pkt_devp->ch_lock);
 	if (smd_pkt_devp->ch == 0) {
+		wake_lock_init(&smd_pkt_devp->pa_wake_lock, WAKE_LOCK_SUSPEND,
+				smd_pkt_dev_name[smd_pkt_devp->i]);
+		INIT_WORK(&smd_pkt_devp->packet_arrival_work,
+				packet_arrival_worker);
 		init_completion(&smd_pkt_devp->ch_allocated);
 		smd_pkt_devp->driver.probe = smd_pkt_dummy_probe;
-		smd_pkt_devp->driver.driver.name =
-			smd_ch_name[smd_pkt_devp->i];
+		scnprintf(smd_pkt_devp->pdriver_name, PDRIVER_NAME_MAX_SIZE,
+			  "%s", smd_ch_name[smd_pkt_devp->i]);
+		smd_pkt_devp->driver.driver.name = smd_pkt_devp->pdriver_name;
 		smd_pkt_devp->driver.driver.owner = THIS_MODULE;
 		r = platform_driver_register(&smd_pkt_devp->driver);
 		if (r) {
@@ -864,13 +876,16 @@ release_pil:
 		pil_put(smd_pkt_devp->pil);
 
 release_pd:
-	if (r < 0)
+	if (r < 0) {
 		platform_driver_unregister(&smd_pkt_devp->driver);
+		smd_pkt_devp->driver.probe = NULL;
+	}
 out:
+	if (!smd_pkt_devp->ch)
+		wake_lock_destroy(&smd_pkt_devp->pa_wake_lock);
+
 	mutex_unlock(&smd_pkt_devp->ch_lock);
 
-	if (r < 0)
-		wake_lock_destroy(&smd_pkt_devp->pa_wake_lock);
 
 	return r;
 }
@@ -898,6 +913,7 @@ int smd_pkt_release(struct inode *inode, struct file *file)
 		smd_pkt_devp->blocking_write = 0;
 		smd_pkt_devp->poll_mode = 0;
 		platform_driver_unregister(&smd_pkt_devp->driver);
+		smd_pkt_devp->driver.probe = NULL;
 		if (smd_pkt_devp->pil)
 			pil_put(smd_pkt_devp->pil);
 	}
@@ -907,6 +923,7 @@ int smd_pkt_release(struct inode *inode, struct file *file)
 
 	smd_pkt_devp->has_reset = 0;
 	smd_pkt_devp->do_reset_notification = 0;
+	smd_pkt_devp->wakelock_locked = 0;
 	wake_lock_destroy(&smd_pkt_devp->pa_wake_lock);
 	D_STATUS("Finished %s on smd_pkt_dev id:%d\n",
 		 __func__, smd_pkt_devp->i);
@@ -962,6 +979,7 @@ static int __init smd_pkt_init(void)
 		init_waitqueue_head(&smd_pkt_devp[i]->ch_write_wait_queue);
 		smd_pkt_devp[i]->is_open = 0;
 		smd_pkt_devp[i]->poll_mode = 0;
+		smd_pkt_devp[i]->wakelock_locked = 0;
 		init_waitqueue_head(&smd_pkt_devp[i]->ch_opened_wait_queue);
 
 		spin_lock_init(&smd_pkt_devp[i]->pa_spinlock);

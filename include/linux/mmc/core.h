@@ -168,6 +168,7 @@ extern int mmc_can_trim(struct mmc_card *card);
 extern int mmc_can_discard(struct mmc_card *card);
 extern int mmc_can_sanitize(struct mmc_card *card);
 extern int mmc_can_secure_erase_trim(struct mmc_card *card);
+extern int mmc_can_poweroff_notify(const struct mmc_card *card);
 extern int mmc_erase_group_aligned(struct mmc_card *card, unsigned int from,
 				   unsigned int nr);
 extern void mmc_start_bkops(struct mmc_card *card);
@@ -191,6 +192,11 @@ extern int mmc_flush_cache(struct mmc_card *);
 extern int mmc_flush_cache(struct mmc_card *);
 
 extern int mmc_detect_card_removed(struct mmc_host *host);
+
+#ifndef CONFIG_HUAWEI_KERNEL
+extern int mmc_schedule_delayed_work(struct delayed_work *work,
+				     unsigned long delay);
+#endif
 
 /**
  *	mmc_claim_host - exclusively claim a host

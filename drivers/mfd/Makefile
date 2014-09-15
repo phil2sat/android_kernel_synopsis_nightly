@@ -80,6 +80,8 @@ obj-$(CONFIG_MCP_UCB1200_TS)	+= ucb1x00-ts.o
 
 obj-$(CONFIG_WCD9310_CODEC)       += wcd9xxx-core.o wcd9xxx-irq.o wcd9xxx-slimslave.o
 obj-$(CONFIG_WCD9304_CODEC)       += wcd9xxx-core.o wcd9xxx-irq.o wcd9xxx-slimslave.o
+obj-$(CONFIG_WCD9320_CODEC)       += wcd9xxx-core.o wcd9xxx-irq.o wcd9xxx-slimslave.o
+
 
 ifeq ($(CONFIG_SA1100_ASSABET),y)
 obj-$(CONFIG_MCP_UCB1200)	+= ucb1x00-assabet.o
@@ -137,6 +139,7 @@ obj-$(CONFIG_MFD_PM8821_CORE) 	+= pm8821-core.o
 obj-$(CONFIG_MFD_PM8018_CORE) 	+= pm8018-core.o
 obj-$(CONFIG_MFD_PM8038_CORE) 	+= pm8038-core.o
 obj-$(CONFIG_MFD_PM8XXX_IRQ) 	+= pm8xxx-irq.o
+obj-$(CONFIG_MFD_PM8821_IRQ) 	+= pm8821-irq.o
 obj-$(CONFIG_MFD_PM8XXX_DEBUG) 	+= pm8xxx-debug.o
 obj-$(CONFIG_MFD_PM8XXX_PWM) 	+= pm8xxx-pwm.o
 obj-$(CONFIG_MFD_PM8XXX_MISC) 	+= pm8xxx-misc.o

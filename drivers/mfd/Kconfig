@@ -936,6 +936,14 @@ config MFD_PM8XXX_IRQ
 	  This is required to use certain other PM 8xxx features, such as GPIO
 	  and MPP.
 
+config MFD_PM8821_IRQ
+	bool "Support for Qualcomm PM8821 IRQ features"
+	default y if MFD_PM8821_CORE
+	help
+	  This is the IRQ driver for Qualcomm PM 8821 PMIC chips.
+
+	  This is required to use certain other PM 8821 features, such as MPPs.
+
 config TPS65911_COMPARATOR
 	tristate
 
@@ -1034,6 +1042,18 @@ config WCD9310_CODEC
           Enables the WCD9310 core driver. The core driver provides
           read/write capability to registers which are part of the
           WCD9310 core and gives the ability to use the WCD9310 codec.
+
+config WCD9320_CODEC
+	tristate "WCD9320 Codec"
+	select SLIMBUS
+	select MFD_CORE
+	help
+	  Enables the WCD9xxx codec core driver. The core driver provides
+	  read/write capability to registers which are part of the
+	  WCD9320 core and gives the ability to use the WCD9320 codec.
+	  The WCD9320 codec support either I2C/I2S or Slimbus for
+	  control and data exchnage with master processor.
+
 
 config MFD_RC5T583
 	bool "Ricoh RC5T583 Power Management system device"

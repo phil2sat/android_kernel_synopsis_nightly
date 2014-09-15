@@ -407,7 +407,7 @@ int msm_mctl_pp_proc_vpe_cmd(
 		struct msm_vpe_clock_rate clk_rate;
 		if (sizeof(struct msm_vpe_clock_rate) !=
 			pp_cmd->length) {
-			pr_err("%s: vpe cmd size mismatch "
+			pr_err("%s: vpe cmd size mismatch " \
 				"(id=%d, length = %d, expect size = %d",
 				__func__, pp_cmd->id, pp_cmd->length,
 				sizeof(struct msm_vpe_clock_rate));
@@ -824,7 +824,7 @@ int msm_mctl_pp_reserve_free_frame(
 		return -EINVAL;
 	}
 	/* Always reserve the buffer from user's video node */
-	pcam_inst = p_mctl->pcam_ptr->dev_inst[image_mode];
+	pcam_inst = p_mctl->pcam_ptr->dev_inst_map[image_mode];
 	if (!pcam_inst) {
 		pr_err("%s Instance already closed ", __func__);
 		return -EINVAL;

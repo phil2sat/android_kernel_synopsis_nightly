@@ -181,6 +181,20 @@ config LEDS_PMIC_MPP
 	  To compile this driver as a module, choose M here: the
 	  module will be called leds-pmic-mpp.
 
+config LEDS_MSM_TRICOLOR
+        tristate "LED Support for Qualcomm tricolor LEDs"
+        depends on LEDS_CLASS && MSM_SMD
+        help
+          This option enables support for tricolor LEDs connected to
+	  to Qualcomm reference boards. Red, green and blue color leds
+	  are supported. These leds are turned on/off, blink on/off
+	  by Modem upon receiving command through rpc from this driver.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called leds-msm-tricolor.
+
 config LEDS_GPIO_PLATFORM
 	bool "Platform device bindings for GPIO LEDs"
 	depends on LEDS_GPIO
@@ -560,5 +574,27 @@ config LEDS_TRIGGER_SLEEP
 
 comment "iptables trigger is under Netfilter config (LED target)"
 	depends on LEDS_TRIGGERS
+
+config  HUAWEI_LEDS_PMIC
+        tristate "LED Support for 7X30 PMIC connected LEDs"
+        default y
+	depends on HUAWEI_KERNEL
+        help
+          This option enables support for LEDs connected over PMIC
+          (Power Management IC) chip on Qualcomm reference boards,
+          for example SURF and FFAs.
+config HUAWEI_FEATURE_PTT_KEY_LIGHT
+	bool "HUAWEI ptt key light driver"
+	depends on HUAWEI_KERNEL
+	default n
+	help
+	  Select Y if use ptt key light.
+
+config HUAWEI_FEATURE_RGB_KEY_LIGHT
+	bool "HUAWEI rbg key light driver"
+	depends on HUAWEI_KERNEL
+	default n
+	help
+	  Select Y if use RGB key light.
 
 endif # NEW_LEDS

@@ -357,7 +357,21 @@ static int ashmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	if (!sc->nr_to_scan)
 		return lru_count;
 
-	mutex_lock(&ashmem_mutex);
+	/* android bug:When system memory is on low sate, some application (such as:SmsReceiverServ thread) 
+	will allocate memory while holding the ashmem_mutex in ashmem_mmap function may try to directly 
+	reclaim memory. Then ashmem_shrink() is called in same thread. It will deadlock at acquiring ashmem_mutex.
+	This change lets ashmem_shrink() return failure if ashmem_mutex is not
+	available instantly. Memory will be reclaimed from other shrinks.*/
+#ifdef CONFIG_HUAWEI_KERNEL	
+	if (!mutex_trylock(&ashmem_mutex))
+	{
+		printk(KERN_ERR "%s:get ashmem_mutex failed! \n",__func__);
+		return -EINVAL;
+	}
+#else
+    mutex_lock(&ashmem_mutex);
+#endif
+	
 	list_for_each_entry_safe(range, next, &ashmem_lru_list, lru) {
 		struct inode *inode = range->asma->file->f_dentry->d_inode;
 		loff_t start = range->pgstart * PAGE_SIZE;
@@ -631,21 +645,29 @@ static unsigned int virtaddr_to_physaddr(unsigned int virtaddr)
 {
 	unsigned int physaddr = 0;
 	pgd_t *pgd_ptr = NULL;
+	pud_t *pud_ptr = NULL;
 	pmd_t *pmd_ptr = NULL;
 	pte_t *pte_ptr = NULL, pte;
 
 	spin_lock(&current->mm->page_table_lock);
 	pgd_ptr = pgd_offset(current->mm, virtaddr);
-	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
+	if (pgd_none(*pgd_ptr) || pgd_bad(*pgd_ptr)) {
 		pr_err("Failed to convert virtaddr %x to pgd_ptr\n",
 			virtaddr);
 		goto done;
 	}
 
-	pmd_ptr = pmd_offset(pgd_ptr, virtaddr);
-	if (pmd_none(*pmd_ptr) || pmd_bad(*pmd_ptr)) {
-		pr_err("Failed to convert pgd_ptr %p to pmd_ptr\n",
+	pud_ptr = pud_offset(pgd_ptr, virtaddr);
+	if (pud_none(*pud_ptr) || pud_bad(*pud_ptr)) {
+		pr_err("Failed to convert pgd_ptr %p to pud_ptr\n",
 			(void *)pgd_ptr);
+		goto done;
+	}
+
+	pmd_ptr = pmd_offset(pud_ptr, virtaddr);
+	if (pmd_none(*pmd_ptr) || pmd_bad(*pmd_ptr)) {
+		pr_err("Failed to convert pud_ptr %p to pmd_ptr\n",
+			(void *)pud_ptr);
 		goto done;
 	}
 
@@ -665,6 +687,7 @@ done:
 }
 #endif
 
+#ifndef CONFIG_HUAWEI_KERNEL
 static int ashmem_cache_op(struct ashmem_area *asma,
 	void (*cache_func)(unsigned long vstart, unsigned long length,
 				unsigned long pstart))
@@ -687,7 +710,7 @@ static int ashmem_cache_op(struct ashmem_area *asma,
 		ret = -EINVAL;
 		goto done;
 	}
-	if ((asma->vm_start + asma->size) > (vma->vm_start + vma->vm_end)) {
+	if ((asma->vm_start + asma->size) > vma->vm_end) {
 		ret = -EINVAL;
 		goto done;
 	}
@@ -709,6 +732,37 @@ done:
 		asma->vm_start = 0;
 	return ret;
 }
+#else /* #ifndef CONFIG_HUAWEI_KERNEL */
+static int ashmem_cache_op(struct ashmem_area *asma,
+	void (*cache_func)(unsigned long vstart, unsigned long length,
+				unsigned long pstart))
+{
+    int ret = 0;
+#ifdef CONFIG_OUTER_CACHE
+	unsigned long vaddr;
+#endif
+	mutex_lock(&ashmem_mutex);
+#ifndef CONFIG_OUTER_CACHE
+	cache_func(asma->vm_start, asma->size, 0);
+#else
+	for (vaddr = asma->vm_start; vaddr < asma->vm_start + asma->size;
+		vaddr += PAGE_SIZE) {
+		unsigned long physaddr;
+		physaddr = virtaddr_to_physaddr(vaddr);
+        if (!physaddr)
+        {
+            ret = -EINVAL;
+            goto done;
+		}
+		cache_func(vaddr, PAGE_SIZE, physaddr);
+	}
+#endif
+
+done:
+	mutex_unlock(&ashmem_mutex);
+	return ret;
+}
+#endif
 
 static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {

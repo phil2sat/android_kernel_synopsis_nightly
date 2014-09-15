@@ -142,6 +142,7 @@ int afe_get_port_type(u16 port_id)
 	switch (port_id) {
 	case PRIMARY_I2S_RX:
 	case PCM_RX:
+	case SECONDARY_PCM_RX:
 	case SECONDARY_I2S_RX:
 	case MI2S_RX:
 	case HDMI_RX:
@@ -160,6 +161,7 @@ int afe_get_port_type(u16 port_id)
 
 	case PRIMARY_I2S_TX:
 	case PCM_TX:
+	case SECONDARY_PCM_TX:
 	case SECONDARY_I2S_TX:
 	case MI2S_TX:
 	case DIGI_MIC_TX:
@@ -167,6 +169,7 @@ int afe_get_port_type(u16 port_id)
 	case SLIMBUS_0_TX:
 	case SLIMBUS_1_TX:
 	case SLIMBUS_2_TX:
+	case SLIMBUS_3_TX:
 	case INT_FM_TX:
 	case VOICE_RECORD_RX:
 	case INT_BT_SCO_TX:
@@ -192,6 +195,8 @@ int afe_validate_port(u16 port_id)
 	case PRIMARY_I2S_TX:
 	case PCM_RX:
 	case PCM_TX:
+	case SECONDARY_PCM_RX:
+	case SECONDARY_PCM_TX:
 	case SECONDARY_I2S_RX:
 	case SECONDARY_I2S_TX:
 	case MI2S_RX:
@@ -210,6 +215,7 @@ int afe_validate_port(u16 port_id)
 	case SLIMBUS_2_RX:
 	case SLIMBUS_2_TX:
 	case SLIMBUS_3_RX:
+	case SLIMBUS_3_TX:
 	case INT_BT_SCO_RX:
 	case INT_BT_SCO_TX:
 	case INT_BT_A2DP_RX:
@@ -259,6 +265,8 @@ int afe_get_port_index(u16 port_id)
 	case PRIMARY_I2S_TX: return IDX_PRIMARY_I2S_TX;
 	case PCM_RX: return IDX_PCM_RX;
 	case PCM_TX: return IDX_PCM_TX;
+	case SECONDARY_PCM_RX: return IDX_SECONDARY_PCM_RX;
+	case SECONDARY_PCM_TX: return IDX_SECONDARY_PCM_TX;
 	case SECONDARY_I2S_RX: return IDX_SECONDARY_I2S_RX;
 	case SECONDARY_I2S_TX: return IDX_SECONDARY_I2S_TX;
 	case MI2S_RX: return IDX_MI2S_RX;
@@ -277,6 +285,7 @@ int afe_get_port_index(u16 port_id)
 	case SLIMBUS_2_RX: return IDX_SLIMBUS_2_RX;
 	case SLIMBUS_2_TX: return IDX_SLIMBUS_2_TX;
 	case SLIMBUS_3_RX: return IDX_SLIMBUS_3_RX;
+	case SLIMBUS_3_TX: return IDX_SLIMBUS_3_TX;
 	case INT_BT_SCO_RX: return IDX_INT_BT_SCO_RX;
 	case INT_BT_SCO_TX: return IDX_INT_BT_SCO_TX;
 	case INT_BT_A2DP_RX: return IDX_INT_BT_A2DP_RX;
@@ -313,6 +322,7 @@ int afe_sizeof_cfg_cmd(u16 port_id)
 	case SLIMBUS_2_RX:
 	case SLIMBUS_2_TX:
 	case SLIMBUS_3_RX:
+	case SLIMBUS_3_TX:
 	case SLIMBUS_4_RX:
 	case SLIMBUS_4_TX:
 		ret_size = SIZEOF_CFG_CMD(afe_port_slimbus_sch_cfg);
@@ -323,6 +333,8 @@ int afe_sizeof_cfg_cmd(u16 port_id)
 		break;
 	case PCM_RX:
 	case PCM_TX:
+	case SECONDARY_PCM_RX:
+	case SECONDARY_PCM_TX:
 	default:
 		ret_size = SIZEOF_CFG_CMD(afe_port_pcm_cfg);
 		break;
@@ -364,11 +376,10 @@ static void afe_send_cal_block(int32_t path, u16 port_id)
 	if ((afe_cal_addr[path].cal_paddr != cal_block.cal_paddr) ||
 		(cal_block.cal_size > afe_cal_addr[path].cal_size)) {
 		if (afe_cal_addr[path].cal_paddr != 0)
-			afe_cmd_memory_unmap_nowait(
+			afe_cmd_memory_unmap(
 				afe_cal_addr[path].cal_paddr);
 
-		afe_cmd_memory_map_nowait(cal_block.cal_paddr,
-						cal_block.cal_size);
+		afe_cmd_memory_map(cal_block.cal_paddr, cal_block.cal_size);
 		afe_cal_addr[path].cal_paddr = cal_block.cal_paddr;
 		afe_cal_addr[path].cal_size = cal_block.cal_size;
 	}
@@ -388,10 +399,19 @@ static void afe_send_cal_block(int32_t path, u16 port_id)
 		"cal size = %d, cal addr = 0x%x\n", __func__,
 		port_id, path, cal_block.cal_size, cal_block.cal_paddr);
 
+	atomic_set(&this_afe.state, 1);
 	result = apr_send_pkt(this_afe.apr, (uint32_t *) &afe_cal);
 	if (result < 0) {
 		pr_err("%s: AFE cal for port %d failed\n",
 			__func__, port_id);
+	}
+
+	result = wait_event_timeout(this_afe.wait,
+				 (atomic_read(&this_afe.state) == 0),
+				 msecs_to_jiffies(TIMEOUT_MS));
+	if (!result) {
+		pr_err("%s: wait_event timeout SET AFE CAL\n", __func__);
+		goto done;
 	}
 
 	pr_debug("%s: AFE cal sent for path %d device!\n", __func__, path);
@@ -409,8 +429,11 @@ void afe_send_cal(u16 port_id)
 		afe_send_cal_block(RX_CAL, port_id);
 }
 
-int afe_port_start_nowait(u16 port_id, union afe_port_config *afe_config,
-	u32 rate) /* This function is no blocking */
+/* This function sends multi-channel HDMI configuration command and AFE
+ * calibration which is only supported by QDSP6 on 8960 and onward.
+ */
+int afe_port_start(u16 port_id, union afe_port_config *afe_config,
+		   u32 rate)
 {
 	struct afe_port_start_command start;
 	struct afe_audioif_config_command config;
@@ -425,16 +448,14 @@ int afe_port_start_nowait(u16 port_id, union afe_port_config *afe_config,
 
 	if ((port_id == RT_PROXY_DAI_001_RX) ||
 		(port_id == RT_PROXY_DAI_002_TX))
-		return -EINVAL;
+		return 0;
 	if ((port_id == RT_PROXY_DAI_002_RX) ||
 		(port_id == RT_PROXY_DAI_001_TX))
 		port_id = VIRTUAL_ID_TO_PORTID(port_id);
 
-	if (this_afe.apr == NULL) {
-		pr_err("%s: AFE APR is not registered\n", __func__);
-		ret = -ENODEV;
+	ret = afe_q6_interface_prepare();
+	if (IS_ERR_VALUE(ret))
 		return ret;
-	}
 
 	if (port_id == HDMI_RX) {
 		config.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
@@ -501,10 +522,27 @@ int afe_port_start_nowait(u16 port_id, union afe_port_config *afe_config,
 	config.port_id = port_id;
 	config.port = *afe_config;
 
+	atomic_set(&this_afe.state, 1);
+	atomic_set(&this_afe.status, 0);
 	ret = apr_send_pkt(this_afe.apr, (uint32_t *) &config);
 	if (ret < 0) {
 		pr_err("%s: AFE enable for port %d failed\n", __func__,
 				port_id);
+		ret = -EINVAL;
+		goto fail_cmd;
+	}
+
+	ret = wait_event_timeout(this_afe.wait,
+			(atomic_read(&this_afe.state) == 0),
+				msecs_to_jiffies(TIMEOUT_MS));
+
+	if (!ret) {
+		pr_err("%s: wait_event timeout IF CONFIG\n", __func__);
+		ret = -EINVAL;
+		goto fail_cmd;
+	}
+	if (atomic_read(&this_afe.status) != 0) {
+		pr_err("%s: config cmd failed\n", __func__);
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -523,11 +561,21 @@ int afe_port_start_nowait(u16 port_id, union afe_port_config *afe_config,
 	start.gain = 0x2000;
 	start.sample_rate = rate;
 
+	atomic_set(&this_afe.state, 1);
 	ret = apr_send_pkt(this_afe.apr, (uint32_t *) &start);
 
 	if (IS_ERR_VALUE(ret)) {
 		pr_err("%s: AFE enable for port %d failed\n", __func__,
 				port_id);
+		ret = -EINVAL;
+		goto fail_cmd;
+	}
+
+	ret = wait_event_timeout(this_afe.wait,
+			(atomic_read(&this_afe.state) == 0),
+				msecs_to_jiffies(TIMEOUT_MS));
+	if (!ret) {
+		pr_err("%s: wait_event timeout PORT START\n", __func__);
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
@@ -543,6 +591,7 @@ fail_cmd:
 	return ret;
 }
 
+/* This function should be used by 8660 exclusively */
 int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
 {
 	struct afe_port_start_command start;
@@ -559,7 +608,7 @@ int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
 
 	if ((port_id == RT_PROXY_DAI_001_RX) ||
 		(port_id == RT_PROXY_DAI_002_TX))
-		return -EINVAL;
+		return 0;
 	if ((port_id == RT_PROXY_DAI_002_RX) ||
 		(port_id == RT_PROXY_DAI_001_TX))
 		port_id = VIRTUAL_ID_TO_PORTID(port_id);
@@ -750,13 +799,14 @@ int afe_loopback_cfg(u16 enable, u16 dst_port, u16 src_port, u16 mode)
 	lp_cfg.hdr.opcode = AFE_PORT_CMD_SET_PARAM;
 
 	lp_cfg.port_id = src_port;
-	lp_cfg.payload_size	= sizeof(struct afe_param_payload);
+	lp_cfg.payload_size	= sizeof(struct afe_param_payload_base) +
+		sizeof(struct afe_param_loopback_cfg);
 	lp_cfg.payload_address	= 0;
 
-	lp_cfg.payload.module_id = AFE_MODULE_LOOPBACK;
-	lp_cfg.payload.param_id	= AFE_PARAM_ID_LOOPBACK_CONFIG;
-	lp_cfg.payload.param_size = sizeof(struct afe_param_loopback_cfg);
-	lp_cfg.payload.reserved	= 0;
+	lp_cfg.payload.base.module_id = AFE_MODULE_LOOPBACK;
+	lp_cfg.payload.base.param_id	= AFE_PARAM_ID_LOOPBACK_CONFIG;
+	lp_cfg.payload.base.param_size = sizeof(struct afe_param_loopback_cfg);
+	lp_cfg.payload.base.reserved	= 0;
 
 	lp_cfg.payload.param.loopback_cfg.loopback_cfg_minor_version =
 			AFE_API_VERSION_LOOPBACK_CONFIG;
@@ -830,13 +880,15 @@ int afe_loopback_gain(u16 port_id, u16 volume)
 	set_param.hdr.opcode = AFE_PORT_CMD_SET_PARAM;
 
 	set_param.port_id		= port_id;
-	set_param.payload_size		= sizeof(struct afe_param_payload);
+	set_param.payload_size	= sizeof(struct afe_param_payload_base) +
+				  sizeof(struct afe_param_loopback_gain);
 	set_param.payload_address	= 0;
 
-	set_param.payload.module_id	= AFE_MODULE_ID_PORT_INFO;
-	set_param.payload.param_id	= AFE_PARAM_ID_LOOPBACK_GAIN;
-	set_param.payload.param_size = sizeof(struct afe_param_loopback_gain);
-	set_param.payload.reserved	= 0;
+	set_param.payload.base.module_id	= AFE_MODULE_ID_PORT_INFO;
+	set_param.payload.base.param_id	= AFE_PARAM_ID_LOOPBACK_GAIN;
+	set_param.payload.base.param_size =
+		sizeof(struct afe_param_loopback_gain);
+	set_param.payload.base.reserved	= 0;
 
 	set_param.payload.param.loopback_gain.gain		= volume;
 	set_param.payload.param.loopback_gain.reserved	= 0;

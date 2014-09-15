@@ -107,6 +107,11 @@ struct platform_device msm9615_device_dmov = {
 	},
 };
 
+struct platform_device msm9615_device_acpuclk = {
+	.name           = "acpuclk-9615",
+	.id             = -1,
+};
+
 #define MSM_USB_BAM_BASE     0x12502000
 #define MSM_USB_BAM_SIZE     SZ_16K
 #define MSM_HSIC_BAM_BASE    0x12542000
@@ -492,6 +497,44 @@ struct platform_device msm_cpudai_auxpcm_tx = {
 	},
 };
 
+struct msm_dai_auxpcm_pdata sec_auxpcm_pdata = {
+	.clk = "sec_pcm_clk",
+	.mode_8k = {
+		.mode = AFE_PCM_CFG_MODE_PCM,
+		.sync = AFE_PCM_CFG_SYNC_INT,
+		.frame = AFE_PCM_CFG_FRM_256BPF,
+		.quant = AFE_PCM_CFG_QUANT_LINEAR_NOPAD,
+		.slot = 0,
+		.data = AFE_PCM_CFG_CDATAOE_MASTER,
+		.pcm_clk_rate = 2048000,
+	},
+	.mode_16k = {
+		.mode = AFE_PCM_CFG_MODE_PCM,
+		.sync = AFE_PCM_CFG_SYNC_INT,
+		.frame = AFE_PCM_CFG_FRM_256BPF,
+		.quant = AFE_PCM_CFG_QUANT_LINEAR_NOPAD,
+		.slot = 0,
+		.data = AFE_PCM_CFG_CDATAOE_MASTER,
+		.pcm_clk_rate = 4096000,
+	}
+};
+
+struct platform_device msm_cpudai_sec_auxpcm_rx = {
+	.name = "msm-dai-q6",
+	.id = 12,
+	.dev = {
+		.platform_data = &sec_auxpcm_pdata,
+	},
+};
+
+struct platform_device msm_cpudai_sec_auxpcm_tx = {
+	.name = "msm-dai-q6",
+	.id = 13,
+	.dev = {
+		.platform_data = &sec_auxpcm_pdata,
+	},
+};
+
 struct platform_device msm_cpu_fe = {
 	.name	= "msm-dai-fe",
 	.id	= -1,
@@ -627,8 +670,7 @@ static struct resource resources_nand[] = {
 };
 
 struct flash_platform_data msm_nand_data = {
-	.parts		= NULL,
-	.nr_parts	= 0,
+	.version = VERSION_2,
 };
 
 struct platform_device msm_device_nand = {
@@ -998,6 +1040,7 @@ struct msm_rpm_platform_data msm9615_rpm_data __initdata = {
 		MSM_RPM_MAP(9615, CXO_BUFFERS, CXO_BUFFERS, 1),
 		MSM_RPM_MAP(9615, USB_OTG_SWITCH, USB_OTG_SWITCH, 1),
 		MSM_RPM_MAP(9615, HDMI_SWITCH, HDMI_SWITCH, 1),
+		MSM_RPM_MAP(9615, VOLTAGE_CORNER, VOLTAGE_CORNER, 1),
 	},
 	.target_status = {
 		MSM_RPM_STATUS_ID_MAP(9615, VERSION_MAJOR),
@@ -1063,6 +1106,7 @@ struct msm_rpm_platform_data msm9615_rpm_data __initdata = {
 		MSM_RPM_STATUS_ID_MAP(9615, CXO_BUFFERS),
 		MSM_RPM_STATUS_ID_MAP(9615, USB_OTG_SWITCH),
 		MSM_RPM_STATUS_ID_MAP(9615, HDMI_SWITCH),
+		MSM_RPM_STATUS_ID_MAP(9615, VOLTAGE_CORNER),
 	},
 	.target_ctrl_id = {
 		MSM_RPM_CTRL_MAP(9615, VERSION_MAJOR),
@@ -1243,17 +1287,17 @@ static struct msm_rpmrs_platform_data msm_rpmrs_data __initdata = {
 		[MSM_RPMRS_VDD_MEM_MAX]         = 1150000,
 	},
 	.vdd_dig_levels = {
-		[MSM_RPMRS_VDD_DIG_RET_LOW]     = 500000,
-		[MSM_RPMRS_VDD_DIG_RET_HIGH]    = 750000,
-		[MSM_RPMRS_VDD_DIG_ACTIVE]      = 950000,
-		[MSM_RPMRS_VDD_DIG_MAX]         = 1150000,
+		[MSM_RPMRS_VDD_DIG_RET_LOW]     = 0,
+		[MSM_RPMRS_VDD_DIG_RET_HIGH]    = 0,
+		[MSM_RPMRS_VDD_DIG_ACTIVE]      = 1,
+		[MSM_RPMRS_VDD_DIG_MAX]         = 3,
 	},
 	.vdd_mask = 0x7FFFFF,
 	.rpmrs_target_id = {
 		[MSM_RPMRS_ID_PXO_CLK]          = MSM_RPM_ID_CXO_CLK,
 		[MSM_RPMRS_ID_L2_CACHE_CTL]     = MSM_RPM_ID_LAST,
-		[MSM_RPMRS_ID_VDD_DIG_0]        = MSM_RPM_ID_PM8018_S1_0,
-		[MSM_RPMRS_ID_VDD_DIG_1]        = MSM_RPM_ID_PM8018_S1_1,
+		[MSM_RPMRS_ID_VDD_DIG_0]        = MSM_RPM_ID_VOLTAGE_CORNER,
+		[MSM_RPMRS_ID_VDD_DIG_1]        = MSM_RPM_ID_LAST,
 		[MSM_RPMRS_ID_VDD_MEM_0]        = MSM_RPM_ID_PM8018_L9_0,
 		[MSM_RPMRS_ID_VDD_MEM_1]        = MSM_RPM_ID_PM8018_L9_1,
 		[MSM_RPMRS_ID_RPM_CTL]          = MSM_RPM_ID_RPM_CTL,
@@ -1304,7 +1348,9 @@ uint32_t __init msm9615_rpm_get_swfi_latency(void)
 	return 0;
 }
 
-struct android_usb_platform_data msm_android_usb_pdata;
+struct android_usb_platform_data msm_android_usb_pdata = {
+	.usb_core_id = 0,
+};
 
 struct platform_device msm_android_usb_device = {
 	.name	= "android_usb",
@@ -1314,12 +1360,27 @@ struct platform_device msm_android_usb_device = {
 	},
 };
 
+struct android_usb_platform_data msm_android_usb_hsic_pdata  = {
+	.usb_core_id = 1,
+};
+
+struct platform_device msm_android_usb_hsic_device = {
+	.name	= "android_usb_hsic",
+	.id	= -1,
+	.dev	= {
+		.platform_data = &msm_android_usb_hsic_pdata,
+	},
+};
+
+
 void __init msm9615_device_init(void)
 {
 	msm_spm_init(msm_spm_data, ARRAY_SIZE(msm_spm_data));
 	BUG_ON(msm_rpm_init(&msm9615_rpm_data));
 	BUG_ON(msm_rpmrs_levels_init(&msm_rpmrs_data));
 	msm_android_usb_pdata.swfi_latency =
+		msm_rpmrs_levels[0].latency_us;
+	msm_android_usb_hsic_pdata.swfi_latency =
 		msm_rpmrs_levels[0].latency_us;
 
 }
