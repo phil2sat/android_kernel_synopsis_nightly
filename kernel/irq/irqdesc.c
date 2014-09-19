@@ -19,33 +19,6 @@
 
 /* move from linux/irq.h */
 
-static inline unsigned int read_timestamp(void)
-{
-	unsigned int tick = 0;
-	unsigned int count = 0;
-
-	/* no barriers necessary as the read value is a dependency for the
-	 * comparison operation so the processor shouldn't be able to
-	 * reorder things
-	 */
-	do {
-		tick = __raw_readl(TIMESTAMP_ADDR_TMP);
-		count++;
-	} while (tick != __raw_readl(TIMESTAMP_ADDR_TMP) && count < 5);
-
-	return tick;
-}
-
-struct irqs_timestamp {  
-	unsigned int irq;  
-	uint32_t  ts; 
-	unsigned int state; 
-};  
-
-static struct irqs_timestamp irq_ts[128];  
-static int irq_idx = 0;  
-#endif
-
 /*
  * lockdep: we want to handle all irq_desc locks as a single lock-class:
  */
