@@ -11,7 +11,7 @@
 
 static void inject_single_bit_error(void *data, size_t size)
 {
-	unsigned long offset = random32() % (size * BITS_PER_BYTE);
+	unsigned long offset = prandom_u32() % (size * BITS_PER_BYTE);
 
 	__change_bit(offset, data);
 }
@@ -29,7 +29,7 @@ static int nand_ecc_test(const size_t size)
 
 	sprintf(testname, "nand-ecc-%zu", size);
 
-	get_random_bytes(data, size);
+	prandom_bytes(data, size);
 
 	memcpy(error_data, data, size);
 	inject_single_bit_error(error_data, size);

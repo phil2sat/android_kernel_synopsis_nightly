@@ -121,7 +121,7 @@ static void neigh_cleanup_and_release(struct neighbour *neigh)
 
 unsigned long neigh_rand_reach_time(unsigned long base)
 {
-	return base ? (net_random() % base) + (base >> 1) : 0;
+	return base ? (prandom_u32() % base) + (base >> 1) : 0;
 }
 EXPORT_SYMBOL(neigh_rand_reach_time);
 
@@ -1388,7 +1388,7 @@ void pneigh_enqueue(struct neigh_table *tbl, struct neigh_parms *p,
 		    struct sk_buff *skb)
 {
 	unsigned long now = jiffies;
-	unsigned long sched_next = now + (net_random() % p->proxy_delay);
+	unsigned long sched_next = now + (prandom_u32() % p->proxy_delay);
 
 	if (tbl->proxy_queue.qlen > p->proxy_qlen) {
 		kfree_skb(skb);
@@ -2755,11 +2755,11 @@ EXPORT_SYMBOL(neigh_app_ns);
 
 #ifdef CONFIG_SYSCTL
 
-static int proc_unres_qlen(ctl_table *ctl, int write, void __user *buffer,
+static int proc_unres_qlen(struct ctl_table *ctl, int write, void __user *buffer,
 			   size_t *lenp, loff_t *ppos)
 {
 	int size, ret;
-	ctl_table tmp = *ctl;
+	struct ctl_table tmp = *ctl;
 
 	tmp.data = &size;
 	size = DIV_ROUND_UP(*(int *)ctl->data, SKB_TRUESIZE(ETH_FRAME_LEN));
