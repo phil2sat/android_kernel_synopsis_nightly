@@ -4692,7 +4692,8 @@ void cgroup_exit(struct task_struct *tsk, int run_callbacks)
 	}
 	task_unlock(tsk);
 
-	put_css_set(cg);
+	if (cg)
+		put_css_set(cg);
 }
 
 /**
