@@ -25,11 +25,7 @@ config SRECORDER_POWERCOLLAPS
 	default y
 	help
 	   Enable Function of catch log when system power down
-config DEVICE_CHECK
-	bool "Enable Device Check for FreezeScreem"
-	default y
-	help
-	   Device Check for FreezeScreem
+
 config STRICT_DEVMEM
 	bool "Filter access to /dev/mem"
 	depends on MMU

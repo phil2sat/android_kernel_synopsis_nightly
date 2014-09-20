@@ -27,15 +27,6 @@
 #include "a2xx_reg.h"
 #include "a3xx_reg.h"
 
-#ifdef CONFIG_DEVICE_CHECK
-#include <linux/dev_check.h>
-/* 在实际测试时，发现GPU挂死之前，会进入adreno_dump函数多次，导致会多次向exception节点写入数据，
-   在此加入一个全局变量，当第一次进入dump流程时，向节点写数据，然后把这个全局变置1，之后再进入dump
-   流程时，不再向节点写数据
-*/
-static int dc_adreno_dump_flag = 0;
-#endif /* End of CONFIG_DEVICE_CHECK */
-
 #define INVALID_RB_CMD 0xaaaaaaaa
 #define NUM_DWORDS_OF_RINGBUFFER_HISTORY 100
 
