@@ -14,6 +14,7 @@
  * MSM architecture driver to control arm halt behavior
  */
 
+#include <linux/cpu.h>
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/fs.h>
@@ -22,9 +23,9 @@
 static int set_nohalt(void *data, u64 val)
 {
 	if (val)
-		disable_hlt();
+		cpu_idle_poll_ctrl(true);
 	else
-		enable_hlt();
+		cpu_idle_poll_ctrl(false);
 	return 0;
 }
 
