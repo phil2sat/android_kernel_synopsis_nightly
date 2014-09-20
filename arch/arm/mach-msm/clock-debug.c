@@ -35,7 +35,8 @@ static int clock_debug_rate_set(void *data, u64 val)
 		clk_set_max_rate(clock, val);
 	ret = clk_set_rate(clock, val);
 	if (ret)
-		pr_err("clk_set_rate failed (%d)\n", ret);
+		pr_err("clk_set_rate(%s, %lu) failed (%d)\n", clock->dbg_name,
+				(unsigned long)val, ret);
 
 	return ret;
 }
@@ -58,7 +59,7 @@ static int clock_debug_measure_get(void *data, u64 *val)
 	int ret, is_hw_gated;
 
 	/* Check to see if the clock is in hardware gating mode */
-	if (clock->flags & CLKFLAG_HWCG)
+	if (clock->ops->in_hwcg_mode)
 		is_hw_gated = clock->ops->in_hwcg_mode(clock);
 	else
 		is_hw_gated = 0;
@@ -134,7 +135,10 @@ DEFINE_SIMPLE_ATTRIBUTE(clock_local_fops, clock_debug_local_get,
 static int clock_debug_hwcg_get(void *data, u64 *val)
 {
 	struct clk *clock = data;
-	*val = !!(clock->flags & CLKFLAG_HWCG);
+	if (clock->ops->in_hwcg_mode)
+		*val = !!clock->ops->in_hwcg_mode(clock);
+	else
+		*val = 0;
 	return 0;
 }
 
@@ -171,16 +175,18 @@ static int clock_debug_print_clock(struct clk *c)
 {
 	char *start = "";
 
-	if (!c || !c->count)
+	if (!c || !c->prepare_count)
 		return 0;
 
 	pr_info("\t");
 	do {
 		if (c->vdd_class)
-			pr_cont("%s%s [%ld, %lu]", start, c->dbg_name, c->rate,
+			pr_cont("%s%s:%u:%u [%ld, %lu]", start, c->dbg_name,
+				c->prepare_count, c->count, c->rate,
 				c->vdd_class->cur_level);
 		else
-			pr_cont("%s%s [%ld]", start, c->dbg_name, c->rate);
+			pr_cont("%s%s:%u:%u [%ld]", start, c->dbg_name,
+				c->prepare_count, c->count, c->rate);
 		start = " -> ";
 	} while ((c = clk_get_parent(c)));
 

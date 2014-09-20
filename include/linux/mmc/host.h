@@ -60,8 +60,6 @@ struct mmc_ios {
 #define MMC_TIMING_UHS_DDR50	5
 #define MMC_TIMING_MMC_HS200	6
 
-	unsigned char	ddr;			/* dual data rate used */
-
 #define MMC_SDR_MODE		0
 #define MMC_1_2V_DDR_MODE	1
 #define MMC_1_8V_DDR_MODE	2
@@ -352,7 +350,6 @@ struct mmc_host {
 	} perf;
 	bool perf_enable;
 #endif
-
 	struct mmc_ios saved_ios;
 	unsigned long		private[0] ____cacheline_aligned;
 };
@@ -436,9 +433,6 @@ int mmc_card_awake(struct mmc_host *host);
 int mmc_card_sleep(struct mmc_host *host);
 int mmc_card_can_sleep(struct mmc_host *host);
 
-int mmc_host_enable(struct mmc_host *host);
-int mmc_host_disable(struct mmc_host *host);
-int mmc_host_lazy_disable(struct mmc_host *host);
 int mmc_pm_notify(struct notifier_block *notify_block, unsigned long, void *);
 
 /* Module parameter */

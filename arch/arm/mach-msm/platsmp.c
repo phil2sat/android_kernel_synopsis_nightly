@@ -41,6 +41,19 @@ extern void msm_secondary_startup(void);
  */
 volatile int pen_release = -1;
 
+/*
+ * Write pen_release in a way that is guaranteed to be visible to all
+ * observers, irrespective of whether they're taking part in coherency
+ * or not.  This is necessary for the hotplug code to work reliably.
+ */
+static void __cpuinit write_pen_release(int val)
+{
+	pen_release = val;
+	smp_wmb();
+	__cpuc_flush_dcache_area((void *)&pen_release, sizeof(pen_release));
+	outer_clean_range(__pa(&pen_release), __pa(&pen_release + 1));
+}
+
 static DEFINE_SPINLOCK(boot_lock);
 
 void __cpuinit platform_secondary_init(unsigned int cpu)
@@ -53,6 +66,12 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 	 * for us: do so
 	 */
 	gic_secondary_init(0);
+
+	/*
+	 * let the primary processor know we're out of the
+	 * pen, then head off into the C entry point
+	 */
+	write_pen_release(-1);
 
 	/*
 	 * Synchronise with the boot thread.
@@ -151,17 +170,9 @@ static int __cpuinit release_secondary(unsigned int cpu)
 }
 
 DEFINE_PER_CPU(int, cold_boot_done);
-static int cold_boot_flags[] = {
-	0,
-	SCM_FLAG_COLDBOOT_CPU1,
-	SCM_FLAG_COLDBOOT_CPU2,
-	SCM_FLAG_COLDBOOT_CPU3,
-};
 
 int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
-	int ret;
-	int flag = 0;
 	unsigned long timeout;
 
 	pr_debug("Starting secondary CPU %d\n", cpu);
@@ -169,20 +180,8 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 	/* Set preset_lpj to avoid subsequent lpj recalculations */
 	preset_lpj = loops_per_jiffy;
 
-	if (cpu > 0 && cpu < ARRAY_SIZE(cold_boot_flags))
-		flag = cold_boot_flags[cpu];
-	else
-		__WARN();
-
 	if (per_cpu(cold_boot_done, cpu) == false) {
-		ret = scm_set_boot_addr((void *)
-					virt_to_phys(msm_secondary_startup),
-					flag);
-		if (ret == 0)
-			release_secondary(cpu);
-		else
-			printk(KERN_DEBUG "Failed to set secondary core boot "
-					  "address\n");
+		release_secondary(cpu);
 		per_cpu(cold_boot_done, cpu) = true;
 	}
 
@@ -200,9 +199,7 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 	 * Note that "pen_release" is the hardware CPU ID, whereas
 	 * "cpu" is Linux's internal ID.
 	 */
-	pen_release = cpu_logical_map(cpu);
-	__cpuc_flush_dcache_area((void *)&pen_release, sizeof(pen_release));
-	outer_clean_range(__pa(&pen_release), __pa(&pen_release + 1));
+	write_pen_release(cpu_logical_map(cpu));
 
 	/*
 	 * Send the secondary CPU a soft interrupt, thereby causing
@@ -217,8 +214,6 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 		if (pen_release == -1)
 			break;
 
-		dmac_inv_range((void *)&pen_release,
-			       (void *)(&pen_release+sizeof(pen_release)));
 		udelay(10);
 	}
 
@@ -250,6 +245,28 @@ void __init smp_init_cpus(void)
 	set_smp_cross_call(gic_raise_softirq);
 }
 
+static int cold_boot_flags[] __initdata = {
+	0,
+	SCM_FLAG_COLDBOOT_CPU1,
+	SCM_FLAG_COLDBOOT_CPU2,
+	SCM_FLAG_COLDBOOT_CPU3,
+};
+
 void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 {
+	int cpu, map;
+	unsigned int flags = 0;
+
+	for_each_present_cpu(cpu) {
+		map = cpu_logical_map(cpu);
+		if (map > ARRAY_SIZE(cold_boot_flags)) {
+			set_cpu_present(cpu, false);
+			__WARN();
+			continue;
+		}
+		flags |= cold_boot_flags[map];
+	}
+
+	if (scm_set_boot_addr(virt_to_phys(msm_secondary_startup), flags))
+		pr_warn("Failed to set CPU boot address\n");
 }
