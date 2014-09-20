@@ -2902,7 +2902,7 @@ static int pmem_remove(struct platform_device *pdev)
 	pm_runtime_disable(&pdev->dev);
 	if (pmem[id].vbase)
 		iounmap(pmem[id].vbase);
-	if (pmem[id].map_on_demand && !pmem[id].reusable && pmem[id].area)
+	if (pmem[id].map_on_demand && pmem[id].area)
 		free_vm_area(pmem[id].area);
 	if (pmem[id].base)
 		free_contiguous_memory_by_paddr(pmem[id].base);
