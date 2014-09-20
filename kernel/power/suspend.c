@@ -279,7 +279,10 @@ static int enter_state(suspend_state_t state)
 	if (!mutex_trylock(&pm_mutex))
 		return -EBUSY;
 
-	suspend_sys_sync_queue();
+	pr_debug(KERN_INFO "PM: Syncing filesystems ... ");
+	sys_sync();
+	pr_debug("done.\n");
+
 	pr_debug("PM: Preparing system for %s sleep\n", pm_states[state]);
 	error = suspend_prepare();
 	if (error)
