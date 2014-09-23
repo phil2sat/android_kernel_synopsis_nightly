@@ -190,6 +190,7 @@ static int rcg_clk_set_rate(struct clk *c, unsigned long rate)
 		clk_disable(cf->src_clk);
 
 	rcg->current_freq = nf;
+	c->parent = nf->src_clk;
 out:
 	return rc;
 }
@@ -216,11 +217,6 @@ static int rcg_clk_list_rate(struct clk *c, unsigned n)
 		return -ENXIO;
 
 	return (rcg->freq_tbl + n)->freq_hz;
-}
-
-static struct clk *rcg_clk_get_parent(struct clk *c)
-{
-	return to_rcg_clk(c)->current_freq->src_clk;
 }
 
 static enum handoff _rcg_clk_handoff(struct rcg_clk *rcg, int has_mnd)
@@ -290,6 +286,7 @@ static enum handoff _rcg_clk_handoff(struct rcg_clk *rcg, int has_mnd)
 		return HANDOFF_UNKNOWN_RATE;
 
 	rcg->current_freq = freq;
+	rcg->c.parent = freq->src_clk;
 	rcg->c.rate = freq->freq_hz;
 
 	return HANDOFF_ENABLED_CLK;
@@ -403,7 +400,7 @@ static int branch_clk_set_rate(struct clk *c, unsigned long rate)
 		return branch_cdiv_set_rate(branch, rate);
 
 	if (!branch->has_sibling)
-		return clk_set_rate(branch->parent, rate);
+		return clk_set_rate(c->parent, rate);
 
 	return -EPERM;
 }
@@ -416,7 +413,7 @@ static long branch_clk_round_rate(struct clk *c, unsigned long rate)
 		return rate <= (branch->max_div) ? rate : -EPERM;
 
 	if (!branch->has_sibling)
-		return clk_round_rate(branch->parent, rate);
+		return clk_round_rate(c->parent, rate);
 
 	return -EPERM;
 }
@@ -429,14 +426,9 @@ static unsigned long branch_clk_get_rate(struct clk *c)
 		return branch->c.rate;
 
 	if (!branch->has_sibling)
-		return clk_get_rate(branch->parent);
+		return clk_get_rate(c->parent);
 
 	return 0;
-}
-
-static struct clk *branch_clk_get_parent(struct clk *c)
-{
-	return to_branch_clk(c)->parent;
 }
 
 static int branch_clk_list_rate(struct clk *c, unsigned n)
@@ -461,9 +453,9 @@ static enum handoff branch_clk_handoff(struct clk *c)
 	if ((cbcr_regval & CBCR_BRANCH_OFF_BIT))
 		return HANDOFF_DISABLED_CLK;
 
-	if (branch->parent) {
-		if (branch->parent->ops->handoff)
-			return branch->parent->ops->handoff(branch->parent);
+	if (c->parent) {
+		if (c->parent->ops->handoff)
+			return c->parent->ops->handoff(c->parent);
 	}
 
 	return HANDOFF_ENABLED_CLK;
@@ -573,7 +565,6 @@ struct clk_ops clk_ops_rcg = {
 	.set_rate = rcg_clk_set_rate,
 	.list_rate = rcg_clk_list_rate,
 	.round_rate = rcg_clk_round_rate,
-	.get_parent = rcg_clk_get_parent,
 	.handoff = rcg_clk_handoff,
 };
 
@@ -582,7 +573,6 @@ struct clk_ops clk_ops_rcg_mnd = {
 	.set_rate = rcg_clk_set_rate,
 	.list_rate = rcg_clk_list_rate,
 	.round_rate = rcg_clk_round_rate,
-	.get_parent = rcg_clk_get_parent,
 	.handoff = rcg_mnd_clk_handoff,
 };
 
@@ -594,7 +584,6 @@ struct clk_ops clk_ops_branch = {
 	.list_rate = branch_clk_list_rate,
 	.round_rate = branch_clk_round_rate,
 	.reset = branch_clk_reset,
-	.get_parent = branch_clk_get_parent,
 	.handoff = branch_clk_handoff,
 };
 
