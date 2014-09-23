@@ -39,6 +39,7 @@ config ARM
 	select ARCH_USE_BUILTIN_BSWAP
 	select GENERIC_IRQ_PROBE
 	select HARDIRQS_SW_RESEND
+	select GENERIC_SMP_IDLE_THREAD
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
