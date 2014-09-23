@@ -150,6 +150,24 @@ int mutex_spin_on_owner(struct mutex *lock, struct task_struct *owner)
 	 */
 	return lock->owner == NULL;
 }
+
+/*
+ * Initial check for entering the mutex spinning loop
+ */
+static inline int mutex_can_spin_on_owner(struct mutex *lock)
+{
+	int retval = 1;
+
+	rcu_read_lock();
+	if (lock->owner)
+		retval = lock->owner->on_cpu;
+	rcu_read_unlock();
+	/*
+	 * if lock->owner is not set, the mutex owner may have just acquired
+	 * it and not set the owner yet or the mutex has been released.
+	 */
+	return retval;
+}
 #endif
 
 __visible __used noinline
@@ -216,7 +234,13 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 	 *
 	 * We can't do this for DEBUG_MUTEXES because that relies on wait_lock
 	 * to serialize everything.
+	 * The mutex spinners are queued up using MCS lock so that only one
+	 * spinner can compete for the mutex. However, if mutex spinning isn't
+	 * going to happen, there is no point in going through the lock/unlock
+	 * overhead.
 	 */
+	if (!mutex_can_spin_on_owner(lock))
+		goto slowpath;
 
 	for (;;) {
 		struct task_struct *owner;
@@ -254,6 +278,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		 */
 		arch_mutex_cpu_relax();
 	}
+slowpath:
 #endif
 	spin_lock_mutex(&lock->wait_lock, flags);
 
