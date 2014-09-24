@@ -147,7 +147,7 @@ int clk_prepare(struct clk *clk)
 
 	mutex_lock(&clk->prepare_lock);
 	if (clk->prepare_count == 0) {
-		parent = clk_get_parent(clk);
+		parent = clk->parent;
 
 		ret = clk_prepare(parent);
 		if (ret)
@@ -193,7 +193,7 @@ int clk_enable(struct clk *clk)
 				clk->dbg_name))
 		clk->warned = true;
 	if (clk->count == 0) {
-		parent = clk_get_parent(clk);
+		parent = clk->parent;
 
 		ret = clk_enable(parent);
 		if (ret)
@@ -244,7 +244,7 @@ void clk_disable(struct clk *clk)
 	if (WARN(clk->count == 0, "%s is unbalanced", clk->dbg_name))
 		goto out;
 	if (clk->count == 1) {
-		struct clk *parent = clk_get_parent(clk);
+		struct clk *parent = clk->parent;
 
 		trace_clock_disable(clk->dbg_name, 0, smp_processor_id());
 		if (clk->ops->disable)
@@ -272,7 +272,7 @@ void clk_unprepare(struct clk *clk)
 		goto out;
 	}
 	if (clk->prepare_count == 1) {
-		struct clk *parent = clk_get_parent(clk);
+		struct clk *parent = clk->parent;
 
 		if (WARN(!clk->warned && clk->count,
 			"%s: Don't call unprepare when the clock is enabled\n",
@@ -399,10 +399,7 @@ struct clk *clk_get_parent(struct clk *clk)
 	if (IS_ERR_OR_NULL(clk))
 		return NULL;
 
-	if (!clk->ops->get_parent)
-		return NULL;
-
-	return clk->ops->get_parent(clk);
+	return clk->parent;
 }
 EXPORT_SYMBOL(clk_get_parent);
 
@@ -441,11 +438,11 @@ static enum handoff __init __handoff_clk(struct clk *clk)
 
 	/*
 	 * Handoff functions for children must be called before their parents'
-	 * so that the correct parent is returned by the clk_get_parent() below.
+	 * so that the correct parent is available below.
 	 */
 	ret = clk->ops->handoff(clk);
 	if (ret == HANDOFF_ENABLED_CLK) {
-		ret = __handoff_clk(clk_get_parent(clk));
+		ret = __handoff_clk(clk->parent);
 		if (ret == HANDOFF_ENABLED_CLK) {
 			h = kmalloc(sizeof(*h), GFP_KERNEL);
 			if (!h) {
@@ -488,7 +485,7 @@ void __init msm_clock_init(struct clock_init_data *data)
 	for (n = 0; n < num_clocks; n++) {
 		struct clk *parent;
 		clk = clock_tbl[n].clk;
-		parent = clk_get_parent(clk);
+		parent = clk->parent;
 		if (parent && list_empty(&clk->siblings))
 			list_add(&clk->siblings, &parent->children);
 	}

@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/err.h>
+#include <linux/clk.h>
 #include <linux/remote_spinlock.h>
 
 #include <mach/scm-io.h>
@@ -54,6 +55,18 @@
 static DEFINE_SPINLOCK(pll_reg_lock);
 
 #define ENABLE_WAIT_MAX_LOOPS 200
+
+static int fixed_pll_clk_set_rate(struct clk *c, unsigned long rate)
+{
+	if (rate != c->rate)
+		return -EINVAL;
+	return 0;
+}
+
+static long fixed_pll_clk_round_rate(struct clk *c, unsigned long rate)
+{
+	return c->rate;
+}
 
 int pll_vote_clk_enable(struct clk *c)
 {
@@ -98,11 +111,6 @@ void pll_vote_clk_disable(struct clk *c)
 	spin_unlock_irqrestore(&pll_reg_lock, flags);
 }
 
-struct clk *pll_vote_clk_get_parent(struct clk *c)
-{
-	return to_pll_vote_clk(c)->parent;
-}
-
 int pll_vote_clk_is_enabled(struct clk *c)
 {
 	struct pll_vote_clk *pllv = to_pll_vote_clk(c);
@@ -122,9 +130,38 @@ struct clk_ops clk_ops_pll_vote = {
 	.enable = pll_vote_clk_enable,
 	.disable = pll_vote_clk_disable,
 	.is_enabled = pll_vote_clk_is_enabled,
-	.get_parent = pll_vote_clk_get_parent,
+	.round_rate = fixed_pll_clk_round_rate,
+	.set_rate = fixed_pll_clk_set_rate,
 	.handoff = pll_vote_clk_handoff,
 };
+
+static void __pll_config_reg(void __iomem *pll_config, struct pll_freq_tbl *f,
+			struct pll_config_masks *masks)
+{
+	u32 regval;
+
+	regval = readl_relaxed(pll_config);
+
+	/* Enable the MN counter if used */
+	if (f->m_val)
+		regval |= masks->mn_en_mask;
+
+	/* Set pre-divider and post-divider values */
+	regval &= ~masks->pre_div_mask;
+	regval |= f->pre_div_val;
+	regval &= ~masks->post_div_mask;
+	regval |= f->post_div_val;
+
+	/* Select VCO setting */
+	regval &= ~masks->vco_mask;
+	regval |= f->vco_val;
+
+	/* Enable main output if it has not been enabled */
+	if (masks->main_output_mask && !(regval & masks->main_output_mask))
+		regval |= masks->main_output_mask;
+
+	writel_relaxed(regval, pll_config);
+}
 
 static void __pll_clk_enable_reg(void __iomem *mode_reg)
 {
@@ -194,16 +231,81 @@ static enum handoff local_pll_clk_handoff(struct clk *c)
 	struct pll_clk *pll = to_pll_clk(c);
 	u32 mode = readl_relaxed(PLL_MODE_REG(pll));
 	u32 mask = PLL_BYPASSNL | PLL_RESET_N | PLL_OUTCTRL;
+	unsigned long parent_rate;
+	u32 lval, mval, nval, userval;
 
-	if ((mode & mask) == mask)
+	if ((mode & mask) != mask)
+		return HANDOFF_DISABLED_CLK;
+
+	/* Assume bootloaders configure PLL to c->rate */
+	if (c->rate)
 		return HANDOFF_ENABLED_CLK;
 
-	return HANDOFF_DISABLED_CLK;
+	parent_rate = clk_get_rate(c->parent);
+	lval = readl_relaxed(PLL_L_REG(pll));
+	mval = readl_relaxed(PLL_M_REG(pll));
+	nval = readl_relaxed(PLL_N_REG(pll));
+	userval = readl_relaxed(PLL_CONFIG_REG(pll));
+
+	c->rate = parent_rate * lval;
+
+	if (pll->masks.mn_en_mask && userval) {
+		if (!nval)
+			nval = 1;
+		c->rate += (parent_rate * mval) / nval;
+	}
+
+	return HANDOFF_ENABLED_CLK;
 }
 
-static struct clk *local_pll_clk_get_parent(struct clk *c)
+static long local_pll_clk_round_rate(struct clk *c, unsigned long rate)
 {
-	return to_pll_clk(c)->parent;
+	struct pll_freq_tbl *nf;
+	struct pll_clk *pll = to_pll_clk(c);
+
+	if (!pll->freq_tbl)
+		return -EINVAL;
+
+	for (nf = pll->freq_tbl; nf->freq_hz != PLL_FREQ_END; nf++)
+		if (nf->freq_hz >= rate)
+			return nf->freq_hz;
+
+	nf--;
+	return nf->freq_hz;
+}
+
+static int local_pll_clk_set_rate(struct clk *c, unsigned long rate)
+{
+	struct pll_freq_tbl *nf;
+	struct pll_clk *pll = to_pll_clk(c);
+	unsigned long flags;
+
+	for (nf = pll->freq_tbl; nf->freq_hz != PLL_FREQ_END
+			&& nf->freq_hz != rate; nf++)
+		;
+
+	if (nf->freq_hz == PLL_FREQ_END)
+		return -EINVAL;
+
+	/*
+	 * Ensure PLL is off before changing rate. For optimization reasons,
+	 * assume no downstream clock is using actively using it.
+	 */
+	spin_lock_irqsave(&c->lock, flags);
+	if (c->count)
+		c->ops->disable(c);
+
+	writel_relaxed(nf->l_val, PLL_L_REG(pll));
+	writel_relaxed(nf->m_val, PLL_M_REG(pll));
+	writel_relaxed(nf->n_val, PLL_N_REG(pll));
+
+	__pll_config_reg(PLL_CONFIG_REG(pll), nf, &pll->masks);
+
+	if (c->count)
+		c->ops->enable(c);
+
+	spin_unlock_irqrestore(&c->lock, flags);
+	return 0;
 }
 
 int sr_pll_clk_enable(struct clk *c)
@@ -299,8 +401,9 @@ out:
 struct clk_ops clk_ops_local_pll = {
 	.enable = local_pll_clk_enable,
 	.disable = local_pll_clk_disable,
+	.set_rate = local_pll_clk_set_rate,
+	.round_rate = local_pll_clk_round_rate,
 	.handoff = local_pll_clk_handoff,
-	.get_parent = local_pll_clk_get_parent,
 };
 
 struct pll_rate {
@@ -444,17 +547,31 @@ static enum handoff pll_clk_handoff(struct clk *c)
 		BUG();
 	}
 
+	if (!pll_clk_is_enabled(c))
+		return HANDOFF_DISABLED_CLK;
+
+	/*
+	 * Do not call pll_clk_enable() since that function can assume
+	 * the PLL is not in use when it's called.
+	 */
+	remote_spin_lock(&pll_lock);
+	pll_control->pll[PLL_BASE + pll->id].votes |= BIT(1);
+	pll_control->pll[PLL_BASE + pll->id].on = 1;
+	remote_spin_unlock(&pll_lock);
+
 	return HANDOFF_ENABLED_CLK;
 }
 
 struct clk_ops clk_ops_pll = {
 	.enable = pll_clk_enable,
 	.disable = pll_clk_disable,
+	.round_rate = fixed_pll_clk_round_rate,
+	.set_rate = fixed_pll_clk_set_rate,
 	.handoff = pll_clk_handoff,
 	.is_enabled = pll_clk_is_enabled,
 };
 
-static void __init __set_fsm_mode(void __iomem *mode_reg)
+static void __set_fsm_mode(void __iomem *mode_reg)
 {
 	u32 regval = readl_relaxed(mode_reg);
 
@@ -477,7 +594,7 @@ static void __init __set_fsm_mode(void __iomem *mode_reg)
 	writel_relaxed(regval, mode_reg);
 }
 
-void __init configure_pll(struct pll_config *config,
+void configure_pll(struct pll_config *config,
 		struct pll_config_regs *regs, u32 ena_fsm_mode)
 {
 	u32 regval;

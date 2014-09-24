@@ -1,7 +1,8 @@
 config ARM
 	bool
 	default y
-	select HAVE_AOUT
+	select ARCH_USE_CMPXCHG_LOCKREF
+	select BUILDTIME_EXTABLE_SORT if MMU
 	select HAVE_DMA_API_DEBUG
 	select HAVE_IDE if PCI || ISA || PCMCIA
 	select HAVE_DMA_CONTIGUOUS if (CPU_V6 || CPU_V6K || CPU_V7)
@@ -36,6 +37,9 @@ config ARM
 	select GENERIC_PCI_IOMAP
 	select HAVE_BPF_JIT if NET
 	select ARCH_USE_BUILTIN_BSWAP
+	select GENERIC_IRQ_PROBE
+	select HARDIRQS_SW_RESEND
+	select GENERIC_SMP_IDLE_THREAD
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
@@ -128,34 +132,12 @@ config TRACE_IRQFLAGS_SUPPORT
 	bool
 	default y
 
-config HARDIRQS_SW_RESEND
-	bool
-	default y
-
-config GENERIC_IRQ_PROBE
-	bool
-	default y
-
-config GENERIC_LOCKBREAK
-	bool
-	default y if !ARM_TICKET_LOCKS
-	depends on SMP && PREEMPT
-
-config ARM_TICKET_LOCKS
-	bool
-	help
-	  Enable ticket locks, which help preserve fairness among
-	  contended locks and prevent livelock in multicore systems.
-	  Say 'y' if system stability is important.
-	default y if ARCH_MSM_SCORPIONMP || ARCH_MSM_KRAITMP
-	depends on SMP
-
 config RWSEM_GENERIC_SPINLOCK
 	bool
-	default y
 
 config RWSEM_XCHGADD_ALGORITHM
 	bool
+	default y
 
 config ARCH_HAS_ILOG2_U32
 	bool
@@ -643,7 +625,6 @@ config ARCH_MMP
 	select CLKDEV_LOOKUP
 	select GENERIC_CLOCKEVENTS
 	select GPIO_PXA
-	select TICK_ONESHOT
 	select PLAT_PXA
 	select SPARSE_IRQ
 	select GENERIC_ALLOCATOR
@@ -727,7 +708,6 @@ config ARCH_PXA
 	select ARCH_REQUIRE_GPIOLIB
 	select GENERIC_CLOCKEVENTS
 	select GPIO_PXA
-	select TICK_ONESHOT
 	select PLAT_PXA
 	select SPARSE_IRQ
 	select AUTO_ZRELADDR
@@ -751,6 +731,9 @@ config ARCH_MSM
 	select HAVE_CLK_PREPARE
 	select NEED_MACH_MEMORY_H
 	select NEED_MACH_IO_H
+	select PL310_ERRATA_727915 if CACHE_L2X0
+	select PL310_ERRATA_753970 if CACHE_L2X0
+	select PL310_ERRATA_769419 if CACHE_L2X0
 	help
 	  Support for Qualcomm MSM/QSD based systems.  This runs on the
 	  apps processor of the MSM/QSD and depends on a shared memory
@@ -802,7 +785,6 @@ config ARCH_SA1100
 	select CPU_FREQ
 	select GENERIC_CLOCKEVENTS
 	select CLKDEV_LOOKUP
-	select TICK_ONESHOT
 	select ARCH_REQUIRE_GPIOLIB
 	select HAVE_IDE
 	select NEED_MACH_MEMORY_H
@@ -1312,6 +1294,16 @@ config PL310_ERRATA_588369
 	   is not correctly implemented in PL310 as clean lines are not
 	   invalidated as a result of these operations.
 
+config ARM_ERRATA_643719
+	bool "ARM errata: LoUIS bit field in CLIDR register is incorrect"
+	depends on CPU_V7 && SMP
+	help
+	  This option enables the workaround for the 643719 Cortex-A9 (prior to
+	  r1p0) erratum. On affected cores the LoUIS bit field of the CLIDR
+	  register returns zero when it should return one. The workaround
+	  corrects this value, ensuring cache maintenance operations which use
+	  it behave as intended and avoiding data corruption.
+
 config ARM_ERRATA_720789
 	bool "ARM errata: TLBIASIDIS and TLBIMVAIS operations can broadcast a faulty ASID"
 	depends on CPU_V7
@@ -1639,7 +1631,6 @@ config ARM_ARCH_TIMER
 config HAVE_ARM_TWD
 	bool
 	depends on SMP
-	select TICK_ONESHOT
 	help
 	  This options enables support for the ARM timer and watchdog unit
 
@@ -1711,6 +1702,9 @@ config HZ
 	default AT91_TIMER_HZ if ARCH_AT91
 	default SHMOBILE_TIMER_HZ if ARCH_SHMOBILE
 	default 100
+
+config SCHED_HRTICK
+	def_bool HIGH_RES_TIMERS
 
 config THUMB2_KERNEL
 	bool "Compile the kernel in Thumb-2 mode (EXPERIMENTAL)"
