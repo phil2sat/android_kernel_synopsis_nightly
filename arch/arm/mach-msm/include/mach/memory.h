@@ -92,18 +92,6 @@ void write_to_strongly_ordered_memory(void);
 void map_page_strongly_ordered(void);
 #endif
 
-#ifdef CONFIG_CACHE_L2X0
-extern void l2x0_cache_sync(void);
-# if !defined(CONFIG_PREEMPT) && !defined(CONFIG_SMP) && !defined(CONFIG_CPU_V7)
-#  define finish_arch_switch(prev)     do { l2x0_cache_sync(); } while (0)
-# endif
-#endif
-
-#if defined(CONFIG_ARCH_MSM8X60) || defined(CONFIG_ARCH_MSM8960)
-extern void store_ttbr0(void);
-#define finish_arch_switch(prev)	do { store_ttbr0(); } while (0)
-#endif
-
 #ifdef CONFIG_DONT_MAP_HOLE_AFTER_MEMBANK0
 extern unsigned long membank0_size;
 extern unsigned long membank1_start;
