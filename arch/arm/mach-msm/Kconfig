@@ -2728,13 +2728,6 @@ config HUAWEI_RPC_CRASH_DEBUG
 	help
 	  Select Y if use rpc related logs.
 
-config HUAWEI_KEY_TEST
-	bool "HUAWEI auto key test driver"
-	depends on HUAWEI_KERNEL
-	default y
-	help
-	  Select Y if use auto key test.
-
 config HUAWEI_SMEM_SLEEP_LOG
 	bool "HUAWEI smem sleep log driver"
 	depends on HUAWEI_KERNEL
