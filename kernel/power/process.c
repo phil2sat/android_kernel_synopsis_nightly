@@ -100,10 +100,7 @@ static int try_to_freeze_tasks(bool user_only)
 			wakeup ? "aborted" : "failed",
 			elapsed_msecs / 1000, elapsed_msecs % 1000,
 			todo - wq_busy, wq_busy);
-/* LGE_CHANGE_S : bohyun.jung@lge.com
- * Dumping thread info holds CPU via preempt_disable(), and there is risk of watchdog reset.
- */
-#if 0
+
 		if (!wakeup) {
 			read_lock(&tasklist_lock);
 			do_each_thread(g, p) {
@@ -113,8 +110,6 @@ static int try_to_freeze_tasks(bool user_only)
 			} while_each_thread(g, p);
 			read_unlock(&tasklist_lock);
 		}
-#endif
-/* LGE_CHANGE_E : bohyun.jung@lge.com */
 	} else {
 		printk("(elapsed %d.%03d seconds) ", elapsed_msecs / 1000,
 			elapsed_msecs % 1000);
