@@ -882,6 +882,10 @@ static struct resource kgsl_3d0_resources[] = {
 static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 	.pwrlevel = {
 		{
+			.gpu_freq = 320000000,
+			.bus_freq = 200000000,
+		},
+		{
 			.gpu_freq = 245760000,
 			.bus_freq = 200000000,
 		},
@@ -895,7 +899,7 @@ static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 		},
 	},
 	.init_level = 0,
-	.num_levels = 3,
+	.num_levels = 4,
 	.set_grp_async = set_grp_xbar_async,
 	.idle_timeout = HZ,
 	.strtstp_sleepwake = true,
@@ -1084,8 +1088,6 @@ struct platform_device msm8625_device_uart_dm1 = {
 	},
 };
 
-/* uart2dm should use msm_serial_hs driver instead of msm_serial_hsl driver */
-#ifndef CONFIG_HUAWEI_KERNEL
 static struct resource msm8625_uart2dm_resources[] = {
 	{
 		.start	= MSM_UART2DM_PHYS,
@@ -1106,52 +1108,6 @@ struct platform_device msm8625_device_uart_dm2 = {
 	.num_resources	= ARRAY_SIZE(msm8625_uart2dm_resources),
 	.resource	= msm8625_uart2dm_resources,
 };
-#else
-static struct resource msm8625_uart2_dm_resources[] = {
-/* define IORESOURCE_MEM, IORESOURCE_IRQ, IORESOURCE_DMA for uart2dm used in msm_hs_probe() */
-	{
-		.start	= MSM_UART2DM_PHYS,
-		.end	= MSM_UART2DM_PHYS + PAGE_SIZE - 1,
-		.flags	= IORESOURCE_MEM,
-	},
-	{
-		.start	= MSM8625_INT_UART2DM_IRQ,
-		.end	= MSM8625_INT_UART2DM_IRQ,
-		.flags	= IORESOURCE_IRQ,
-	},
-	{
-		.start	= MSM8625_INT_UART2DM_RX,
-		.end	= MSM8625_INT_UART2DM_RX,
-		.flags	= IORESOURCE_IRQ,
-	},
-	{
-		.start	= DMOV_HSUART2_TX_CHAN,
-		.end	= DMOV_HSUART2_RX_CHAN,
-		.name	= "uartdm_channels",
-		.flags	= IORESOURCE_DMA,
-	},
-	{
-		.start	= DMOV_HSUART2_TX_CRCI,
-		.end	= DMOV_HSUART2_RX_CRCI,
-		.name	= "uartdm_crci",
-		.flags	= IORESOURCE_DMA,
-	},
-};
-
-static u64 msm_uart_dm2_dma_mask = DMA_BIT_MASK(32);
-
-struct platform_device msm8625_device_uart_dm2 = {
-	.name	= "msm_serial_hs",
-	.id	= 1, 
-	.num_resources	= ARRAY_SIZE(msm8625_uart2_dm_resources),
-	.resource	= msm8625_uart2_dm_resources,
-	.dev	= {
-		.dma_mask		= &msm_uart_dm2_dma_mask,
-		.coherent_dma_mask	= DMA_BIT_MASK(32),
-	},
-};
-
-#endif
 
 static struct resource msm8625_resources_adsp[] = {
 	{
@@ -1327,22 +1283,12 @@ static struct resource msm8625_resources_sdc3[] = {
 		.end	= MSM8625_INT_SDC3_1,
 		.flags	= IORESOURCE_IRQ,
 	},
-    /*change DMA channel to 8*/
-#ifdef CONFIG_HUAWEI_KERNEL
-    {
-        .name   = "sdcc_dma_chnl",
-        .start  = DMOV_SDC3_CHAN,
-        .end    = DMOV_SDC3_CHAN,
-        .flags  = IORESOURCE_DMA,
-    },
-#else
-    {
-        .name   = "sdcc_dma_chnl",
-        .start  = DMOV_NAND_CHAN,
-        .end    = DMOV_NAND_CHAN,
-        .flags  = IORESOURCE_DMA,
-    },
-#endif
+	{
+		.name	= "sdcc_dma_chnl",
+		.start	= DMOV_NAND_CHAN,
+		.end	= DMOV_NAND_CHAN,
+		.flags	= IORESOURCE_DMA,
+	},
 	{
 		.name	= "sdcc_dma_crci",
 		.start	= DMOV_SDC3_CRCI,
@@ -1703,6 +1649,7 @@ static int __init msm8625_cpu_id(void)
 	case 0x771:
 	case 0x77C:
 	case 0x780:
+	case 0x785: /* Edge-only MSM8125-0 */
 	case 0x8D0:
 		cpu = MSM8625;
 		break;
@@ -2009,12 +1956,7 @@ static struct clk_lookup msm_clock_8625_dummy[] = {
 	CLK_DUMMY("core_clk",		uart1_clk.c,	"msm_serial.0", 0),
 	CLK_DUMMY("core_clk",		uart2_clk.c,	"msm_serial.1", 0),
 	CLK_DUMMY("core_clk",		uart1dm_clk.c,	"msm_serial_hs.0", 0),
-/* uart2dm should use msm_serial_hs clock instead of msm_serial_hsl clock */
-#ifndef CONFIG_HUAWEI_KERNEL
 	CLK_DUMMY("core_clk",		uart2dm_clk.c,	"msm_serial_hsl.0", 0),
-#else	
-	CLK_DUMMY("core_clk",		uart2dm_clk.c,	"msm_serial_hs.1", 0),
-#endif	
 	CLK_DUMMY("usb_hs_core_clk",	usb_hs_core_clk.c, NULL, 0),
 	CLK_DUMMY("usb_hs2_clk",	usb_hs2_clk.c,	NULL, 0),
 	CLK_DUMMY("usb_hs_clk",		usb_hs_clk.c,	NULL, 0),
