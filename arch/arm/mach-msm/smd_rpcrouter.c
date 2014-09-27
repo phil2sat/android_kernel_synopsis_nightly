@@ -233,8 +233,6 @@ static struct notifier_block msm_rpc_reboot_notifier = {
 	.priority = 100
 };
 
-
-
 /*
  * Search for transport (xprt) that matches the provided PID.
  *
@@ -548,7 +546,6 @@ static void rpcrouter_register_board_dev(struct rr_server *server)
 			  __func__, board_info->dev->prog);
 			list_del(&board_info->list);
 			spin_unlock_irqrestore(&rpc_board_dev_list_lock, flags);
-
 			rc = platform_device_register(&board_info->dev->pdev);
 			if (rc)
 				pr_err("%s: board dev register failed %d\n",
@@ -1007,16 +1004,9 @@ static int rr_read(struct rpcrouter_xprt_info *xprt_info,
 		wake_unlock(&xprt_info->wakelock);
 		spin_unlock_irqrestore(&xprt_info->lock, flags);
 
-        #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		printk(KERN_ERR "%s: Wait for %d bytes\n",__func__, xprt_info->need_len);
-        #endif
-
 		wait_event(xprt_info->read_wait,
 			xprt_info->xprt->read_avail() >= len
 			|| xprt_info->abort_data_read);
-        #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		printk(KERN_ERR "%s: Wait ended for %d bytes\n",__func__, xprt_info->need_len);
-        #endif
 	}
 	return -EIO;
 }
@@ -1125,10 +1115,6 @@ static void do_read_data(struct work_struct *work)
 			rq = (struct rpc_request_hdr *) frag->data;
 			xid = ntohl(rq->xid);
 		}
-		#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		/*add log for debug rpc issue*/
-        printk("RPC receive deubg #1: xid=0x%03x\n",xid);
-		#endif
 		if ((pm >> 31 & 0x1) || (pm >> 30 & 0x1))
 			RAW_PMR_NOMASK("xid:0x%03x first=%i,last=%i,mid=%3i,"
 				       "len=%3i,dst_cid=%08x\n",
@@ -1141,11 +1127,6 @@ static void do_read_data(struct work_struct *work)
 
 	if (smd_rpcrouter_debug_mask & SMEM_LOG) {
 		rq = (struct rpc_request_hdr *) frag->data;
-		/*add log for debug rpc issue*/
-		#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-        printk("RPC receive deubg #2: xid=0x%03x, ntohl(xid)=0x%03x\n",rq->xid, ntohl(rq->xid));
-		printk("RPC debug #3 prog=0x%x, ver=0x%x,proc=0x%x\n", ntohl(rq->prog), ntohl(rq->vers), ntohl(rq->procedure));
-		#endif
 		if (rq->xid == 0)
 			smem_log_event(SMEM_LOG_PROC_ID_APPS |
 				       RPC_ROUTER_LOG_EVENT_MID_READ,
@@ -1228,7 +1209,6 @@ packet_complete:
 	wake_up(&ept->wait_q);
 	spin_unlock(&ept->read_q_lock);
 	spin_unlock_irqrestore(&local_endpoints_lock, flags);
-
 done:
 
 	if (hdr.confirm_rx) {
@@ -2469,7 +2449,6 @@ void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event)
 {
 	struct rpcrouter_xprt_info *xprt_info;
 	struct rpcrouter_xprt_work *xprt_work;
-	/* merge msm kernel 3.4 patch 902de08f6670ddba147609e8b9f895dadf2275d9 */
 	unsigned long flags;
 
 	/* Workqueue is created in init function which works for all existing
@@ -2502,7 +2481,6 @@ void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event)
 
 	xprt_info = xprt->priv;
 	if (xprt_info) {
-		/* merge msm kernel 3.4 patch 902de08f6670ddba147609e8b9f895dadf2275d9 */
 		spin_lock_irqsave(&xprt_info->lock, flags);
 		/* Check read_avail even for OPEN event to handle missed
 		   DATA events while processing the OPEN event*/
@@ -2510,10 +2488,6 @@ void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event)
 			wake_lock(&xprt_info->wakelock);
 		wake_up(&xprt_info->read_wait);
 		spin_unlock_irqrestore(&xprt_info->lock, flags);
-		#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		printk(KERN_ERR "%s: Wakeup event - read_avail: %d, need_len %d\n",
-		                  __func__, xprt->read_avail(), xprt_info->need_len);
-		#endif
 	}
 }
 
@@ -2560,12 +2534,7 @@ static int __init rpcrouter_init(void)
 	int ret;
 
 	msm_rpc_connect_timeout_ms = 0;
-#ifndef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 	smd_rpcrouter_debug_mask |= SMEM_LOG;
-#else
-	/* merge qcom SBA from 7x30 2030 baseline*/
-	smd_rpcrouter_debug_mask = 511;
-#endif
 	debugfs_init();
 	ret = register_reboot_notifier(&msm_rpc_reboot_notifier);
 	if (ret)
