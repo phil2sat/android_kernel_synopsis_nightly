@@ -36,7 +36,7 @@
 static noinline void __down(struct semaphore *sem);
 static noinline int __down_interruptible(struct semaphore *sem);
 static noinline int __down_killable(struct semaphore *sem);
-static noinline int __down_timeout(struct semaphore *sem, long jiffies);
+static noinline int __down_timeout(struct semaphore *sem, long timeout);
 static noinline void __up(struct semaphore *sem);
 
 /**
@@ -118,7 +118,7 @@ EXPORT_SYMBOL(down_killable);
  * down_trylock - try to acquire the semaphore, without waiting
  * @sem: the semaphore to be acquired
  *
- * Try to acquire the semaphore atomically.  Returns 0 if the mutex has
+ * Try to acquire the semaphore atomically.  Returns 0 if the semaphore has
  * been acquired successfully or 1 if it it cannot be acquired.
  *
  * NOTE: This return value is inverted from both spin_trylock and
@@ -145,14 +145,14 @@ EXPORT_SYMBOL(down_trylock);
 /**
  * down_timeout - acquire the semaphore within a specified time
  * @sem: the semaphore to be acquired
- * @jiffies: how long to wait before failing
+ * @timeout: how long to wait before failing
  *
  * Attempts to acquire the semaphore.  If no more tasks are allowed to
  * acquire the semaphore, calling this function will put the task to sleep.
  * If the semaphore is not released within the specified number of jiffies,
  * this function returns -ETIME.  It returns 0 if the semaphore was acquired.
  */
-int down_timeout(struct semaphore *sem, long jiffies)
+int down_timeout(struct semaphore *sem, long timeout)
 {
 	unsigned long flags;
 	int result = 0;
@@ -161,7 +161,7 @@ int down_timeout(struct semaphore *sem, long jiffies)
 	if (likely(sem->count > 0))
 		sem->count--;
 	else
-		result = __down_timeout(sem, jiffies);
+		result = __down_timeout(sem, timeout);
 	raw_spin_unlock_irqrestore(&sem->lock, flags);
 
 	return result;
@@ -193,7 +193,7 @@ EXPORT_SYMBOL(up);
 struct semaphore_waiter {
 	struct list_head list;
 	struct task_struct *task;
-	int up;
+	bool up;
 };
 
 /*
@@ -209,12 +209,12 @@ static inline int __sched __down_common(struct semaphore *sem, long state,
 
 	list_add_tail(&waiter.list, &sem->wait_list);
 	waiter.task = task;
-	waiter.up = 0;
+	waiter.up = false;
 
 	for (;;) {
 		if (signal_pending_state(state, task))
 			goto interrupted;
-		if (timeout <= 0)
+		if (unlikely(timeout <= 0))
 			goto timed_out;
 		__set_task_state(task, state);
 		raw_spin_unlock_irq(&sem->lock);
@@ -248,9 +248,9 @@ static noinline int __sched __down_killable(struct semaphore *sem)
 	return __down_common(sem, TASK_KILLABLE, MAX_SCHEDULE_TIMEOUT);
 }
 
-static noinline int __sched __down_timeout(struct semaphore *sem, long jiffies)
+static noinline int __sched __down_timeout(struct semaphore *sem, long timeout)
 {
-	return __down_common(sem, TASK_UNINTERRUPTIBLE, jiffies);
+	return __down_common(sem, TASK_UNINTERRUPTIBLE, timeout);
 }
 
 static noinline void __sched __up(struct semaphore *sem)
@@ -258,6 +258,6 @@ static noinline void __sched __up(struct semaphore *sem)
 	struct semaphore_waiter *waiter = list_first_entry(&sem->wait_list,
 						struct semaphore_waiter, list);
 	list_del(&waiter->list);
-	waiter->up = 1;
+	waiter->up = true;
 	wake_up_process(waiter->task);
 }
