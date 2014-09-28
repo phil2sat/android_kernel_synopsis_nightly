@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/smd_rpcrouter.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2007-2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2007-2013, The Linux Foundation. All rights reserved.
  * Author: San Mehat <san@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -159,6 +159,7 @@ static atomic_t pm_mid = ATOMIC_INIT(1);
 static void do_read_data(struct work_struct *work);
 static void do_create_pdevs(struct work_struct *work);
 static void do_create_rpcrouter_pdev(struct work_struct *work);
+static int msm_rpcrouter_close(void);
 
 static DECLARE_WORK(work_create_pdevs, do_create_pdevs);
 static DECLARE_WORK(work_create_rpcrouter_pdev, do_create_rpcrouter_pdev);
@@ -231,8 +232,6 @@ static struct notifier_block msm_rpc_reboot_notifier = {
 	.notifier_call = msm_rpc_reboot_call,
 	.priority = 100
 };
-
-
 
 /*
  * Search for transport (xprt) that matches the provided PID.
@@ -307,6 +306,10 @@ static void modem_reset_cleanup(struct rpcrouter_xprt_info *xprt_info)
 	struct msm_rpc_reply *reply, *reply_tmp;
 	unsigned long flags;
 
+	if (!xprt_info) {
+		pr_err("%s: Invalid xprt_info\n", __func__);
+		return;
+	}
 	spin_lock_irqsave(&local_endpoints_lock, flags);
 	/* remove all partial packets received */
 	list_for_each_entry(ept, &local_endpoints, list) {
@@ -543,7 +546,6 @@ static void rpcrouter_register_board_dev(struct rr_server *server)
 			  __func__, board_info->dev->prog);
 			list_del(&board_info->list);
 			spin_unlock_irqrestore(&rpc_board_dev_list_lock, flags);
-
 			rc = platform_device_register(&board_info->dev->pdev);
 			if (rc)
 				pr_err("%s: board dev register failed %d\n",
@@ -644,7 +646,7 @@ struct msm_rpc_endpoint *msm_rpcrouter_create_local_endpoint(dev_t dev)
 int msm_rpcrouter_destroy_local_endpoint(struct msm_rpc_endpoint *ept)
 {
 	int rc;
-	union rr_control_msg msg;
+	union rr_control_msg msg = { 0 };
 	struct msm_rpc_reply *reply, *reply_tmp;
 	unsigned long flags;
 	struct rpcrouter_xprt_info *xprt_info;
@@ -779,7 +781,7 @@ static void handle_server_restart(struct rr_server *server,
 static int process_control_msg(struct rpcrouter_xprt_info *xprt_info,
 			       union rr_control_msg *msg, int len)
 {
-	union rr_control_msg ctl;
+	union rr_control_msg ctl = { 0 };
 	struct rr_server *server;
 	struct rr_remote_endpoint *r_ept;
 	int rc = 0;
@@ -1002,16 +1004,9 @@ static int rr_read(struct rpcrouter_xprt_info *xprt_info,
 		wake_unlock(&xprt_info->wakelock);
 		spin_unlock_irqrestore(&xprt_info->lock, flags);
 
-        #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		printk(KERN_ERR "%s: Wait for %d bytes\n",__func__, xprt_info->need_len);
-        #endif
-
 		wait_event(xprt_info->read_wait,
 			xprt_info->xprt->read_avail() >= len
 			|| xprt_info->abort_data_read);
-        #ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		printk(KERN_ERR "%s: Wait ended for %d bytes\n",__func__, xprt_info->need_len);
-        #endif
 	}
 	return -EIO;
 }
@@ -1120,10 +1115,6 @@ static void do_read_data(struct work_struct *work)
 			rq = (struct rpc_request_hdr *) frag->data;
 			xid = ntohl(rq->xid);
 		}
-		#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		/*add log for debug rpc issue*/
-        printk("RPC receive deubg #1: xid=0x%03x\n",xid);
-		#endif
 		if ((pm >> 31 & 0x1) || (pm >> 30 & 0x1))
 			RAW_PMR_NOMASK("xid:0x%03x first=%i,last=%i,mid=%3i,"
 				       "len=%3i,dst_cid=%08x\n",
@@ -1136,11 +1127,6 @@ static void do_read_data(struct work_struct *work)
 
 	if (smd_rpcrouter_debug_mask & SMEM_LOG) {
 		rq = (struct rpc_request_hdr *) frag->data;
-		/*add log for debug rpc issue*/
-		#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-        printk("RPC receive deubg #2: xid=0x%03x, ntohl(xid)=0x%03x\n",rq->xid, ntohl(rq->xid));
-		printk("RPC debug #3 prog=0x%x, ver=0x%x,proc=0x%x\n", ntohl(rq->prog), ntohl(rq->vers), ntohl(rq->procedure));
-		#endif
 		if (rq->xid == 0)
 			smem_log_event(SMEM_LOG_PROC_ID_APPS |
 				       RPC_ROUTER_LOG_EVENT_MID_READ,
@@ -1223,11 +1209,10 @@ packet_complete:
 	wake_up(&ept->wait_q);
 	spin_unlock(&ept->read_q_lock);
 	spin_unlock_irqrestore(&local_endpoints_lock, flags);
-
 done:
 
 	if (hdr.confirm_rx) {
-		union rr_control_msg msg;
+		union rr_control_msg msg = { 0 };
 
 		msg.cmd = RPCROUTER_CTRL_CMD_RESUME_TX;
 		msg.cli.pid = hdr.dst_pid;
@@ -2086,7 +2071,7 @@ int msm_rpc_register_server(struct msm_rpc_endpoint *ept,
 			    uint32_t prog, uint32_t vers)
 {
 	int rc;
-	union rr_control_msg msg;
+	union rr_control_msg msg = { 0 };
 	struct rr_server *server;
 	struct rpcrouter_xprt_info *xprt_info;
 
@@ -2164,16 +2149,17 @@ int msm_rpc_get_curr_pkt_size(struct msm_rpc_endpoint *ept)
 	return rc;
 }
 
-int msm_rpcrouter_close(void)
+static int msm_rpcrouter_close(void)
 {
 	struct rpcrouter_xprt_info *xprt_info;
-	union rr_control_msg ctl;
+	union rr_control_msg ctl = { 0 };
 
 	ctl.cmd = RPCROUTER_CTRL_CMD_BYE;
 	mutex_lock(&xprt_info_list_lock);
 	while (!list_empty(&xprt_info_list)) {
 		xprt_info = list_first_entry(&xprt_info_list,
 					struct rpcrouter_xprt_info, list);
+		modem_reset_cleanup(xprt_info);
 		xprt_info->abort_data_read = 1;
 		wake_up(&xprt_info->read_wait);
 		rpcrouter_send_control_msg(xprt_info, &ctl);
@@ -2184,6 +2170,8 @@ int msm_rpcrouter_close(void)
 		flush_workqueue(xprt_info->workqueue);
 		destroy_workqueue(xprt_info->workqueue);
 		wake_lock_destroy(&xprt_info->wakelock);
+		/*free memory*/
+		xprt_info->xprt->priv = 0;
 		kfree(xprt_info);
 
 		mutex_lock(&xprt_info_list_lock);
@@ -2461,7 +2449,6 @@ void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event)
 {
 	struct rpcrouter_xprt_info *xprt_info;
 	struct rpcrouter_xprt_work *xprt_work;
-	/* merge msm kernel 3.4 patch 902de08f6670ddba147609e8b9f895dadf2275d9 */
 	unsigned long flags;
 
 	/* Workqueue is created in init function which works for all existing
@@ -2494,7 +2481,6 @@ void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event)
 
 	xprt_info = xprt->priv;
 	if (xprt_info) {
-		/* merge msm kernel 3.4 patch 902de08f6670ddba147609e8b9f895dadf2275d9 */
 		spin_lock_irqsave(&xprt_info->lock, flags);
 		/* Check read_avail even for OPEN event to handle missed
 		   DATA events while processing the OPEN event*/
@@ -2502,10 +2488,6 @@ void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event)
 			wake_lock(&xprt_info->wakelock);
 		wake_up(&xprt_info->read_wait);
 		spin_unlock_irqrestore(&xprt_info->lock, flags);
-		#ifdef CONFIG_HUAWEI_RPC_CRASH_DEBUG
-		printk(KERN_ERR "%s: Wakeup event - read_avail: %d, need_len %d\n",
-		                  __func__, xprt->read_avail(), xprt_info->need_len);
-		#endif
 	}
 }
 
@@ -2552,12 +2534,7 @@ static int __init rpcrouter_init(void)
 	int ret;
 
 	msm_rpc_connect_timeout_ms = 0;
-#ifndef CONFIG_HUAWEI_RPC_CRASH_DEBUG
 	smd_rpcrouter_debug_mask |= SMEM_LOG;
-#else
-	/* merge qcom SBA from 7x30 2030 baseline*/
-	smd_rpcrouter_debug_mask = 511;
-#endif
 	debugfs_init();
 	ret = register_reboot_notifier(&msm_rpc_reboot_notifier);
 	if (ret)
