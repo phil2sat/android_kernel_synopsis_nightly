@@ -1457,19 +1457,6 @@ static void mmc_detect(struct mmc_host *host)
 }
 
 /*
- * Restore ios setting
- */
-#ifndef CONFIG_HUAWEI_KERNEL
-static void mmc_restore_ios(struct mmc_host *host)
-{
-	BUG_ON(!host);
-
-	memcpy(&host->ios, &host->saved_ios, sizeof(struct mmc_ios));
-	mmc_set_ios(host);
-}
-#endif
-
-/*
  * Suspend callback from host.
  */
 static int mmc_suspend(struct mmc_host *host)
@@ -1520,18 +1507,7 @@ static int mmc_resume(struct mmc_host *host)
 
 	mmc_claim_host(host);
 	
-	/*Hynic mmc cannot wakeup using awake function, fix it temporarily*/
-#ifndef CONFIG_HUAWEI_KERNEL
-	
-	if (mmc_card_is_sleep(host->card)) {
-		mmc_restore_ios(host);
-		err = mmc_card_awake(host);
-	} else
-		err = mmc_init_card(host, host->ocr, host->card);
-#else
-	printk("call mmc_init_card instead of awake\n");
 	err = mmc_init_card(host, host->ocr, host->card);
-#endif
 	mmc_release_host(host);
 
 	return err;
