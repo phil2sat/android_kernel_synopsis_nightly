@@ -720,7 +720,7 @@ wl_iw_set_power_mode(
 
 	strncpy((char *)&powermode_val, extra + strlen("POWERMODE") + 1, 1);
 
-	if (strnicmp((char *)&powermode_val, "1", strlen("1")) == 0) {
+	if (strncasecmp((char *)&powermode_val, "1", strlen("1")) == 0) {
 
 		dev_wlc_ioctl(dev, WLC_GET_PM, &pm, sizeof(pm));
 		dev_wlc_ioctl(dev, WLC_SET_PM, &pm_local, sizeof(pm_local));
@@ -732,7 +732,7 @@ wl_iw_set_power_mode(
 		WL_TRACE_COEX(("%s: DHCP start, pm:%d changed to pm:%d\n",
 			__FUNCTION__, pm, pm_local));
 
-	} else if (strnicmp((char *)&powermode_val, "0", strlen("0")) == 0) {
+	} else if (strncasecmp((char *)&powermode_val, "0", strlen("0")) == 0) {
 
 		dev_wlc_ioctl(dev, WLC_SET_PM, &pm, sizeof(pm));
 
@@ -946,7 +946,7 @@ wl_iw_set_btcoex_dhcp(
 	strncpy((char *)&powermode_val, extra + strlen("POWERMODE") + 1, 1);
 #endif
 
-	if (strnicmp((char *)&powermode_val, "1", strlen("1")) == 0) {
+	if (strncasecmp((char *)&powermode_val, "1", strlen("1")) == 0) {
 
 		WL_TRACE_COEX(("%s: DHCP session start, cmd:%s\n", __FUNCTION__, extra));
 
@@ -991,9 +991,9 @@ wl_iw_set_btcoex_dhcp(
 		}
 	}
 #ifdef CUSTOMER_HW2
-	else if (strnicmp((char *)&powermode_val, "2", strlen("2")) == 0) {
+	else if (strncasecmp((char *)&powermode_val, "2", strlen("2")) == 0) {
 #else
-	else if (strnicmp((char *)&powermode_val, "0", strlen("0")) == 0) {
+	else if (strncasecmp((char *)&powermode_val, "0", strlen("0")) == 0) {
 #endif
 
 #ifndef CUSTOMER_HW2
@@ -5597,7 +5597,7 @@ wl_iw_parse_wep(char *keystr, wl_wsec_key_t *key)
 	case 28:
 	case 34:
 	case 66:
-		if (!strnicmp(keystr, "0x", 2))
+		if (!strncasecmp(keystr, "0x", 2))
 			keystr += 2;
 		else
 			return -1;
@@ -6534,7 +6534,7 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 	WL_SOFTAP(("	channel = %d\n", ap->channel));
 	WL_SOFTAP(("	max scb = %d\n", ap->max_scb));
 
-	if (strnicmp(ap->sec, "open", strlen("open")) == 0) {
+	if (strncasecmp(ap->sec, "open", strlen("open")) == 0) {
 		wsec = 0;
 		res = dev_wlc_intvar_set(dev, "wsec", wsec);
 		wpa_auth = WPA_AUTH_DISABLED;
@@ -6544,7 +6544,7 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 		WL_SOFTAP((" wsec & wpa_auth set 'OPEN', result:&d %d\n", res));
 		WL_SOFTAP(("=====================\n"));
 
-	} else if (strnicmp(ap->sec, "wep", strlen("wep")) == 0) {
+	} else if (strncasecmp(ap->sec, "wep", strlen("wep")) == 0) {
 
 		memset(&key, 0, sizeof(key));
 
@@ -6571,7 +6571,7 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 		WL_SOFTAP((" wsec & auth set 'WEP', result:&d %d\n", res));
 		WL_SOFTAP(("=====================\n"));
 
-	} else if (strnicmp(ap->sec, "wpa2-psk", strlen("wpa2-psk")) == 0) {
+	} else if (strncasecmp(ap->sec, "wpa2-psk", strlen("wpa2-psk")) == 0) {
 		wsec_pmk_t psk;
 		size_t key_len;
 
@@ -6613,7 +6613,7 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 		wpa_auth = WPA2_AUTH_PSK;
 		dev_wlc_intvar_set(dev, "wpa_auth", wpa_auth);
 
-	} else if (strnicmp(ap->sec, "wpa-psk", strlen("wpa-psk")) == 0) {
+	} else if (strncasecmp(ap->sec, "wpa-psk", strlen("wpa-psk")) == 0) {
 
 		wsec_pmk_t psk;
 		size_t key_len;
@@ -6670,7 +6670,7 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 		res |= dev_wlc_ioctl(dev, WLC_SET_SSID, &ap_ssid, sizeof(ap_ssid));
 		mpc = 0;
 		res |= dev_wlc_intvar_set(dev, "mpc", mpc);
-		if (strnicmp(ap->sec, "wep", strlen("wep")) == 0) {
+		if (strncasecmp(ap->sec, "wep", strlen("wep")) == 0) {
 			res |= dev_wlc_ioctl(dev, WLC_SET_KEY, &key, sizeof(key));
 		}
 #endif
@@ -7110,7 +7110,7 @@ int wl_iw_process_private_ascii_cmd(
 	WL_SOFTAP(("\n %s: ASCII_CMD: offs_0:%s, offset_32:\n'%s'\n",
 		__FUNCTION__, cmd_str, cmd_str + PROFILE_OFFSET));
 
-	if (strnicmp(sub_cmd, "AP_CFG", strlen("AP_CFG")) == 0) {
+	if (strncasecmp(sub_cmd, "AP_CFG", strlen("AP_CFG")) == 0) {
 
 		WL_SOFTAP((" AP_CFG \n"));
 
@@ -7122,7 +7122,7 @@ int wl_iw_process_private_ascii_cmd(
 			ret = set_ap_cfg(dev, &my_ap);
 		}
 
-	} else if (strnicmp(sub_cmd, "AP_BSS_START", strlen("AP_BSS_START")) == 0) {
+	} else if (strncasecmp(sub_cmd, "AP_BSS_START", strlen("AP_BSS_START")) == 0) {
 
 		WL_SOFTAP(("\n SOFTAP - ENABLE BSS \n"));
 
@@ -7141,9 +7141,9 @@ int wl_iw_process_private_ascii_cmd(
 				WL_ERROR(("%s line %d fail to set bss up\n", \
 					__FUNCTION__, __LINE__));
 #endif
-	} else if (strnicmp(sub_cmd, "ASSOC_LST", strlen("ASSOC_LST")) == 0) {
+	} else if (strncasecmp(sub_cmd, "ASSOC_LST", strlen("ASSOC_LST")) == 0) {
 		/* no code yet */
-	} else if (strnicmp(sub_cmd, "AP_BSS_STOP", strlen("AP_BSS_STOP")) == 0) {
+	} else if (strncasecmp(sub_cmd, "AP_BSS_STOP", strlen("AP_BSS_STOP")) == 0) {
 		WL_SOFTAP((" \n temp DOWN SOFTAP\n"));
 #ifndef AP_ONLY
 		if ((ret = dev_iw_write_cfg1_bss_var(dev, 0)) < 0) {
@@ -7181,7 +7181,7 @@ static int wl_iw_set_priv(
 	net_os_wake_lock(dev);
 	
 	if (dwrq->length && extra) {
-		if (strnicmp(extra, "START", strlen("START")) == 0) {
+		if (strncasecmp(extra, "START", strlen("START")) == 0) {
 			wl_iw_control_wl_on(dev, info);
 			WL_TRACE(("%s, Received regular START command\n", __FUNCTION__));
 		}
@@ -7193,86 +7193,86 @@ static int wl_iw_set_priv(
 			return -EFAULT;
 		}
 
-		if (strnicmp(extra, "SCAN-ACTIVE", strlen("SCAN-ACTIVE")) == 0) {
+		if (strncasecmp(extra, "SCAN-ACTIVE", strlen("SCAN-ACTIVE")) == 0) {
 #ifdef ENABLE_ACTIVE_PASSIVE_SCAN_SUPPRESS
 			WL_TRACE(("%s: active scan setting suppressed\n", dev->name));
 #else
 			ret = wl_iw_set_active_scan(dev, info, (union iwreq_data *)dwrq, extra);
 #endif
-		} else if (strnicmp(extra, "SCAN-PASSIVE", strlen("SCAN-PASSIVE")) == 0)
+		} else if (strncasecmp(extra, "SCAN-PASSIVE", strlen("SCAN-PASSIVE")) == 0)
 #ifdef ENABLE_ACTIVE_PASSIVE_SCAN_SUPPRESS
 			WL_TRACE(("%s: passive scan setting suppressed\n", dev->name));
 #else
 			ret = wl_iw_set_passive_scan(dev, info, (union iwreq_data *)dwrq, extra);
 #endif
-		else if (strnicmp(extra, "RSSI", strlen("RSSI")) == 0)
+		else if (strncasecmp(extra, "RSSI", strlen("RSSI")) == 0)
 			ret = wl_iw_get_rssi(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, "LINKSPEED", strlen("LINKSPEED")) == 0)
+		else if (strncasecmp(extra, "LINKSPEED", strlen("LINKSPEED")) == 0)
 			ret = wl_iw_get_link_speed(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, "MACADDR", strlen("MACADDR")) == 0)
+		else if (strncasecmp(extra, "MACADDR", strlen("MACADDR")) == 0)
 			ret = wl_iw_get_macaddr(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, "COUNTRY", strlen("COUNTRY")) == 0)
+		else if (strncasecmp(extra, "COUNTRY", strlen("COUNTRY")) == 0)
 			ret = wl_iw_set_country(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, "STOP", strlen("STOP")) == 0)
+		else if (strncasecmp(extra, "STOP", strlen("STOP")) == 0)
 			ret = wl_iw_control_wl_off(dev, info);
-		else if (strnicmp(extra, BAND_GET_CMD, strlen(BAND_GET_CMD)) == 0)
+		else if (strncasecmp(extra, BAND_GET_CMD, strlen(BAND_GET_CMD)) == 0)
 			ret = wl_iw_get_band(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, BAND_SET_CMD, strlen(BAND_SET_CMD)) == 0)
+		else if (strncasecmp(extra, BAND_SET_CMD, strlen(BAND_SET_CMD)) == 0)
 			ret = wl_iw_set_band(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, DTIM_SKIP_GET_CMD, strlen(DTIM_SKIP_GET_CMD)) == 0)
+		else if (strncasecmp(extra, DTIM_SKIP_GET_CMD, strlen(DTIM_SKIP_GET_CMD)) == 0)
 			ret = wl_iw_get_dtim_skip(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, DTIM_SKIP_SET_CMD, strlen(DTIM_SKIP_SET_CMD)) == 0)
+		else if (strncasecmp(extra, DTIM_SKIP_SET_CMD, strlen(DTIM_SKIP_SET_CMD)) == 0)
 			ret = wl_iw_set_dtim_skip(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, SETSUSPEND_CMD, strlen(SETSUSPEND_CMD)) == 0)
+		else if (strncasecmp(extra, SETSUSPEND_CMD, strlen(SETSUSPEND_CMD)) == 0)
 			ret = wl_iw_set_suspend(dev, info, (union iwreq_data *)dwrq, extra);
-	    else if (strnicmp(extra, TXPOWER_SET_CMD, strlen(TXPOWER_SET_CMD)) == 0)
+	    else if (strncasecmp(extra, TXPOWER_SET_CMD, strlen(TXPOWER_SET_CMD)) == 0)
 			ret = wl_iw_set_txpower(dev, info, (union iwreq_data *)dwrq, extra);
 #if defined(PNO_SUPPORT)
-		else if (strnicmp(extra, PNOSSIDCLR_SET_CMD, strlen(PNOSSIDCLR_SET_CMD)) == 0)
+		else if (strncasecmp(extra, PNOSSIDCLR_SET_CMD, strlen(PNOSSIDCLR_SET_CMD)) == 0)
 			ret = wl_iw_set_pno_reset(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, PNOSETUP_SET_CMD, strlen(PNOSETUP_SET_CMD)) == 0)
+		else if (strncasecmp(extra, PNOSETUP_SET_CMD, strlen(PNOSETUP_SET_CMD)) == 0)
 			ret = wl_iw_set_pno_set(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, PNOENABLE_SET_CMD, strlen(PNOENABLE_SET_CMD)) == 0)
+		else if (strncasecmp(extra, PNOENABLE_SET_CMD, strlen(PNOENABLE_SET_CMD)) == 0)
 			ret = wl_iw_set_pno_enable(dev, info, (union iwreq_data *)dwrq, extra);
 #endif
 #if defined(CSCAN)
-		else if (strnicmp(extra, CSCAN_COMMAND, strlen(CSCAN_COMMAND)) == 0)
+		else if (strncasecmp(extra, CSCAN_COMMAND, strlen(CSCAN_COMMAND)) == 0)
 			ret = wl_iw_set_cscan(dev, info, (union iwreq_data *)dwrq, extra);
 #endif
 #ifdef CUSTOMER_HW2
-		else if (strnicmp(extra, "POWERMODE", strlen("POWERMODE")) == 0)
+		else if (strncasecmp(extra, "POWERMODE", strlen("POWERMODE")) == 0)
 			ret = wl_iw_set_power_mode(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
+		else if (strncasecmp(extra, "BTCOEXMODE", strlen("BTCOEXMODE")) == 0) {
 			WL_TRACE_COEX(("%s:got Framwrork cmd: 'BTCOEXMODE'\n", __FUNCTION__));
 			ret = wl_iw_set_btcoex_dhcp(dev, info, (union iwreq_data *)dwrq, extra);
 		}
 #else
-		else if (strnicmp(extra, "POWERMODE", strlen("POWERMODE")) == 0)
+		else if (strncasecmp(extra, "POWERMODE", strlen("POWERMODE")) == 0)
 			ret = wl_iw_set_btcoex_dhcp(dev, info, (union iwreq_data *)dwrq, extra);
 #endif
-		else if (strnicmp(extra, "GETPOWER", strlen("GETPOWER")) == 0)
+		else if (strncasecmp(extra, "GETPOWER", strlen("GETPOWER")) == 0)
 			ret = wl_iw_get_power_mode(dev, info, (union iwreq_data *)dwrq, extra);
-		else if (strnicmp(extra, RXFILTER_START_CMD, strlen(RXFILTER_START_CMD)) == 0)
+		else if (strncasecmp(extra, RXFILTER_START_CMD, strlen(RXFILTER_START_CMD)) == 0)
 			ret = net_os_set_packet_filter(dev, 1);
-		else if (strnicmp(extra, RXFILTER_STOP_CMD, strlen(RXFILTER_STOP_CMD)) == 0)
+		else if (strncasecmp(extra, RXFILTER_STOP_CMD, strlen(RXFILTER_STOP_CMD)) == 0)
 			ret = net_os_set_packet_filter(dev, 0);
-		else if (strnicmp(extra, RXFILTER_ADD_CMD, strlen(RXFILTER_ADD_CMD)) == 0) {
+		else if (strncasecmp(extra, RXFILTER_ADD_CMD, strlen(RXFILTER_ADD_CMD)) == 0) {
 			int filter_num = *(extra + strlen(RXFILTER_ADD_CMD) + 1) - '0';
 			ret = net_os_rxfilter_add_remove(dev, TRUE, filter_num);
 		}
-		else if (strnicmp(extra, RXFILTER_REMOVE_CMD, strlen(RXFILTER_REMOVE_CMD)) == 0) {
+		else if (strncasecmp(extra, RXFILTER_REMOVE_CMD, strlen(RXFILTER_REMOVE_CMD)) == 0) {
 			int filter_num = *(extra + strlen(RXFILTER_REMOVE_CMD) + 1) - '0';
 			ret = net_os_rxfilter_add_remove(dev, FALSE, filter_num);
 		}
 #ifdef SOFTAP
 #ifdef SOFTAP_TLV_CFG
-		else if (strnicmp(extra, SOFTAP_SET_CMD, strlen(SOFTAP_SET_CMD)) == 0) {
+		else if (strncasecmp(extra, SOFTAP_SET_CMD, strlen(SOFTAP_SET_CMD)) == 0) {
 		    wl_iw_softap_cfg_tlv(dev, info, (union iwreq_data *)dwrq, extra);
 		}
 #endif
-		else if (strnicmp(extra, "ASCII_CMD", strlen("ASCII_CMD")) == 0) {
+		else if (strncasecmp(extra, "ASCII_CMD", strlen("ASCII_CMD")) == 0) {
 			wl_iw_process_private_ascii_cmd(dev, info, (union iwreq_data *)dwrq, extra);
-		} else if (strnicmp(extra, "AP_MAC_LIST_SET", strlen("AP_MAC_LIST_SET")) == 0) {
+		} else if (strncasecmp(extra, "AP_MAC_LIST_SET", strlen("AP_MAC_LIST_SET")) == 0) {
 			WL_SOFTAP(("penguin, set AP_MAC_LIST_SET\n"));
 			set_ap_mac_list(dev, (extra + PROFILE_OFFSET));
 		}
