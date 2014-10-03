@@ -43,9 +43,9 @@
 
 /* add log switch, control logmian ect logs can write in or not */
 static atomic_t log_switch = ATOMIC_INIT(USER_LOG_OFF);
-static int minor_of_exception = 0;
-static int minor_of_events = 0;
-static int minor_of_main = 0;
+//static int minor_of_exception = 0;
+//static int minor_of_events = 0;
+//static int minor_of_main = 0;
 static int minor_of_power = 0;
 
 struct log_ctl {
@@ -482,7 +482,8 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 	return count;
 }
 
-#ifdef CONFIG_HUAWEI_KERNEL
+#if 0
+//#ifdef CONFIG_HUAWEI_KERNEL
 /*
  * get_log_entry - get the log priority and tag from iov structure
  *
