@@ -17,6 +17,8 @@
  * GNU General Public License for more details.
  */
 
+#define pr_fmt(fmt) "logger: " fmt
+
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -25,72 +27,87 @@
 #include <linux/poll.h>
 #include <linux/slab.h>
 #include <linux/time.h>
+#include <linux/vmalloc.h>
 #include "logger.h"
 
 #include <asm/ioctls.h>
 
-#ifdef CONFIG_HUAWEI_KERNEL
-#include <asm/sections.h>
-#endif
 /* for logcat nv control */
 #ifdef CONFIG_HUAWEI_KERNEL
-#include <mach/oem_rapi_client.h>
-/* del #include proc_comm.h code */
+# include <asm/sections.h>
+# include <mach/oem_rapi_client.h>
 
-#define LOG_CTL_INFO_ITEM	   60008/*modem nv item: NV_LOG_CTL_INFO_I*/
-#define USER_LOG_ON 1
-#define USER_LOG_OFF 0
+# define LOG_CTL_INFO_ITEM	   60008 /*modem nv item: NV_LOG_CTL_INFO_I*/
+# define USER_LOG_ON 1
+# define USER_LOG_OFF 0
 
-#if defined(CONFIG_HUAWEI_KERNEL)
 /* add log switch, control logmian ect logs can write in or not */
 static atomic_t log_switch = ATOMIC_INIT(USER_LOG_OFF);
 static int minor_of_exception = 0;
 static int minor_of_events = 0;
 static int minor_of_main = 0;
 static int minor_of_power = 0;
-#endif
-struct log_ctl{
+
+struct log_ctl {
 	char on_off_flag; /*on off flag read from modem side*/
 	char reserve[3];
 };
 #endif
 
-/*
+/**
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
+ * @buffer:	The actual ring buffer
+ * @misc:	The "misc" device representing the log
+ * @wq:		The wait queue for @readers
+ * @readers:	This log's readers
+ * @mutex:	The mutex that protects the @buffer
+ * @w_off:	The current write head offset
+ * @head:	The head, or location that readers start reading at.
+ * @size:	The size of the log
+ * @logs:	The list of log channels
  *
  * This structure lives from module insertion until module removal, so it does
  * not need additional reference counting. The structure is protected by the
  * mutex 'mutex'.
  */
 struct logger_log {
-	unsigned char		*buffer;/* the ring buffer itself */
-	struct miscdevice	misc;	/* misc device representing the log */
-	wait_queue_head_t	wq;	/* wait queue for readers */
-	struct list_head	readers; /* this log's readers */
-	struct mutex		mutex;	/* mutex protecting buffer */
-	size_t			w_off;	/* current write head offset */
-	size_t			head;	/* new readers start here */
-	size_t			size;	/* size of the log */
+	unsigned char		*buffer;
+	struct miscdevice	misc;
+	wait_queue_head_t	wq;
+	struct list_head	readers;
+	struct mutex		mutex;
+	size_t			w_off;
+	size_t			head;
+	size_t			size;
+	struct list_head	logs;
 };
 
-/*
+static LIST_HEAD(log_list);
+
+
+/**
  * struct logger_reader - a logging device open for reading
+ * @log:	The associated log
+ * @list:	The associated entry in @logger_log's list
+ * @r_off:	The current read head offset.
+ * @r_all:	Reader can read all entries
+ * @r_ver:	Reader ABI version
  *
  * This object lives from open to release, so we don't need additional
  * reference counting. The structure is protected by log->mutex.
  */
 struct logger_reader {
-	struct logger_log	*log;	/* associated log */
-	struct list_head	list;	/* entry in logger_log's list */
-	size_t			r_off;	/* current read head offset */
-	bool			r_all;	/* reader can read all entries */
-	int			r_ver;	/* reader ABI version */
+	struct logger_log	*log;
+	struct list_head	list;
+	size_t			r_off;
+	bool			r_all;
+	int			r_ver;
 };
 
 /* logger_offset - returns index 'n' into the log via (optimized) modulus */
-size_t logger_offset(struct logger_log *log, size_t n)
+static size_t logger_offset(struct logger_log *log, size_t n)
 {
-	return n & (log->size-1);
+	return n & (log->size - 1);
 }
 
 
@@ -113,8 +130,9 @@ static inline struct logger_log *file_get_log(struct file *file)
 	if (file->f_mode & FMODE_READ) {
 		struct logger_reader *reader = file->private_data;
 		return reader->log;
-	} else
-		return file->private_data;
+	}
+
+	return file->private_data;
 }
 
 /*
@@ -161,8 +179,8 @@ static size_t get_user_hdr_len(int ver)
 {
 	if (ver < 2)
 		return sizeof(struct user_logger_entry_compat);
-	else
-		return sizeof(struct logger_entry);
+
+	return sizeof(struct logger_entry);
 }
 
 static ssize_t copy_header_to_user(int ver, struct logger_entry *entry,
@@ -530,38 +548,34 @@ static void get_log_entry(const struct iovec *iov, unsigned long nr_segs, char *
  * writev(), and aio_write(). Writes are our fast path, and we try to optimize
  * them above all else.
  */
-ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
+static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 			 unsigned long nr_segs, loff_t ppos)
 {
 	struct logger_log *log = file_get_log(iocb->ki_filp);
-	size_t orig = log->w_off;
+	size_t orig;
 	struct logger_entry header;
 	struct timespec now;
 	ssize_t ret = 0;
-    
-#ifdef CONFIG_HUAWEI_KERNEL
-    char priority = 0;
-    char tag[MAX_TAG_LEN] = {0};
-    get_log_entry(iov, nr_segs, &priority, tag, sizeof(tag));
-    tag[sizeof(tag) - 1] = 0;
-#endif    
-    
-    /* delete temp code in update J baseline */
-#if defined(CONFIG_HUAWEI_KERNEL)
-    /* log control */
-    /* if log device is events or main which its priority is more than ANDROID_LOG_INFO, we also pass it */
-    if (USER_LOG_ON == atomic_read(&log_switch) || minor_of_exception == log->misc.minor
-        || minor_of_power == log->misc.minor || minor_of_events == log->misc.minor 
-        || ((minor_of_main == log->misc.minor) && (priority >= ANDROID_LOG_INFO)))
-    {
-        /* log it */
-    }
-    else
-    {
-        return -1;
-    }
+
+#if 0
+//#ifdef CONFIG_HUAWEI_KERNEL
+	char priority = 0;
+	char tag[MAX_TAG_LEN] = {0};
+	get_log_entry(iov, nr_segs, &priority, tag, sizeof(tag));
+	tag[sizeof(tag) - 1] = 0;
+
+	/* log control */
+	/* if log device is events or main which its priority is more than ANDROID_LOG_INFO, we also pass it */
+	if (!(USER_LOG_ON == atomic_read(&log_switch)
+			|| minor_of_exception == log->misc.minor
+			|| minor_of_power == log->misc.minor
+			|| minor_of_events == log->misc.minor
+			|| ((minor_of_main == log->misc.minor)
+			&& (priority >= ANDROID_LOG_INFO))))
+		return -1;
+
 #endif
-    /* delete temp code in update J baseline */
+
 	now = current_kernel_time();
 
 	header.pid = current->tgid;
@@ -577,6 +591,8 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		return 0;
 
 	mutex_lock(&log->mutex);
+
+	orig = log->w_off;
 
 	/*
 	 * Fix up any readers, pulling them forward to the first readable
@@ -615,7 +631,15 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	return ret;
 }
 
-static struct logger_log *get_log_from_minor(int);
+static struct logger_log *get_log_from_minor(int minor)
+{
+	struct logger_log *log;
+
+	list_for_each_entry(log, &log_list, logs)
+		if (log->misc.minor == minor)
+			return log;
+	return NULL;
+}
 
 /*
  * logger_open - the log's open() file operation
@@ -670,13 +694,11 @@ static int logger_release(struct inode *ignored, struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
 		struct logger_reader *reader = file->private_data;
-        
-        /* logger driver NULL pointer due to mutual exclusion */
-        struct logger_log *log = reader->log;
-	       
-        mutex_lock(&log->mutex);
+		struct logger_log *log = reader->log;
+
+		mutex_lock(&log->mutex);
 		list_del(&reader->list);
-        mutex_unlock(&log->mutex);
+		mutex_unlock(&log->mutex);
 
 		kfree(reader);
 	}
@@ -830,61 +852,70 @@ static const struct file_operations logger_fops = {
 };
 
 /*
- * Defines a log structure with name 'NAME' and a size of 'SIZE' bytes, which
- * must be a power of two, and greater than
+ * Log size must must be a power of two, and greater than
  * (LOGGER_ENTRY_MAX_PAYLOAD + sizeof(struct logger_entry)).
  */
-#define DEFINE_LOGGER_DEVICE(VAR, NAME, SIZE) \
-static unsigned char _buf_ ## VAR[SIZE]; \
-static struct logger_log VAR = { \
-	.buffer = _buf_ ## VAR, \
-	.misc = { \
-		.minor = MISC_DYNAMIC_MINOR, \
-		.name = NAME, \
-		.fops = &logger_fops, \
-		.parent = NULL, \
-	}, \
-	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(VAR .wq), \
-	.readers = LIST_HEAD_INIT(VAR .readers), \
-	.mutex = __MUTEX_INITIALIZER(VAR .mutex), \
-	.w_off = 0, \
-	.head = 0, \
-	.size = SIZE, \
-};
-
-/* save 0.5M memory */
-#ifndef CONFIG_HUAWEI_KERNEL
-DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 256*1024)
-DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
-DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 256*1024)
-DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 256*1024)
-#else
-DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 64*1024)
-DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
-DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 64*1024)
-DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 64*1024)
-DEFINE_LOGGER_DEVICE(log_exception, LOGGER_LOG_EXCEPTION, 16*1024)
-DEFINE_LOGGER_DEVICE(log_power, LOGGER_LOG_POWER, 16*1024)
-#endif
-
-static struct logger_log *get_log_from_minor(int minor)
+static int __init create_log(char *log_name, int size)
 {
-	if (log_main.misc.minor == minor)
-		return &log_main;
-	if (log_events.misc.minor == minor)
-		return &log_events;
-	if (log_radio.misc.minor == minor)
-		return &log_radio;
-	if (log_system.misc.minor == minor)
-		return &log_system;
-#if defined(CONFIG_HUAWEI_KERNEL)
-	if (log_exception.misc.minor == minor)
-		return &log_exception;
-    if (log_power.misc.minor == minor)
-        return &log_power;
-#endif
-	return NULL;
+	int ret = 0;
+	struct logger_log *log;
+	unsigned char *buffer;
+
+	buffer = vmalloc(size);
+	if (buffer == NULL)
+		return -ENOMEM;
+
+	log = kzalloc(sizeof(struct logger_log), GFP_KERNEL);
+	if (log == NULL) {
+		ret = -ENOMEM;
+		goto out_free_buffer;
+	}
+	log->buffer = buffer;
+
+	log->misc.minor = MISC_DYNAMIC_MINOR;
+	log->misc.name = kstrdup(log_name, GFP_KERNEL);
+	if (log->misc.name == NULL) {
+		ret = -ENOMEM;
+		goto out_free_log;
+	}
+
+	log->misc.fops = &logger_fops;
+	log->misc.parent = NULL;
+
+	init_waitqueue_head(&log->wq);
+	INIT_LIST_HEAD(&log->readers);
+	mutex_init(&log->mutex);
+	log->w_off = 0;
+	log->head = 0;
+	log->size = size;
+
+	INIT_LIST_HEAD(&log->logs);
+	list_add_tail(&log->logs, &log_list);
+
+	/* finally, initialize the misc device for this log */
+	ret = misc_register(&log->misc);
+	if (unlikely(ret)) {
+		pr_err("failed to register misc device for log '%s'!\n",
+				log->misc.name);
+		goto out_free_misc_name;
+	}
+
+	pr_info("created %luK log '%s'\n",
+		(unsigned long) log->size >> 10, log->misc.name);
+
+	return 0;
+
+out_free_misc_name:
+	kfree(log->misc.name);
+
+out_free_log:
+	kfree(log);
+
+out_free_buffer:
+	vfree(buffer);
+	return ret;
 }
+
 #ifdef CONFIG_HUAWEI_KERNEL
 static int open_state = 0;
 static int log_switch_open(struct inode *inode, struct file *file)
@@ -892,7 +923,7 @@ static int log_switch_open(struct inode *inode, struct file *file)
     if (open_state == 0)
     {
         open_state = 1;
-        return 0;  
+        return 0;
     }
     return -1;
 }
@@ -942,31 +973,13 @@ static const struct file_operations log_switch_fops = {
     .release = log_switch_release,
 };
 
-static struct miscdevice log_switch_misc_dev = { 
-    .minor = MISC_DYNAMIC_MINOR, 
-    .name = "log_switch", 
-    .fops = &log_switch_fops, 
-    .parent = NULL, 
+static struct miscdevice log_switch_misc_dev = {
+    .minor = MISC_DYNAMIC_MINOR,
+    .name = "log_switch",
+    .fops = &log_switch_fops,
+    .parent = NULL,
 };
-#endif
-static int __init init_log(struct logger_log *log)
-{
-	int ret;
 
-	ret = misc_register(&log->misc);
-	if (unlikely(ret)) {
-		printk(KERN_ERR "logger: failed to register misc "
-		       "device for log '%s'!\n", log->misc.name);
-		return ret;
-	}
-
-	printk(KERN_INFO "logger: created %luK log '%s'\n",
-	       (unsigned long) log->size >> 10, log->misc.name);
-
-	return 0;
-}
-
-#ifdef CONFIG_HUAWEI_KERNEL
 static char address_save_buf[1024];
 void save_address_to_crash_dump(const char *fmt, ...)
 {
@@ -989,80 +1002,106 @@ EXPORT_SYMBOL(save_address_to_crash_dump);
 static int __init logger_init(void)
 {
 	int ret;
-	/* for logcat control by nv */
-#ifdef CONFIG_HUAWEI_KERNEL
-    u16 nv_item = LOG_CTL_INFO_ITEM;
-    struct log_ctl ctl_info;
-    int  rval = -1;
 
-    /* default to disable ddms log*/
-    /* default to open ddms log temp */
-    ctl_info.on_off_flag = USER_LOG_OFF;
-    printk("%s, %d: driver default on_off_flag == %d\n", __FUNCTION__, __LINE__, ctl_info.on_off_flag);
-    rval = oem_rapi_read_nv(nv_item, (void*)&ctl_info, sizeof(ctl_info));
-    printk("logger open flag: on_off_flag=%d\n", ctl_info.on_off_flag);
-    #if 0
-    /*if log nv(NV_LOG_CTL_INFO_I) is 0 or inactive , we don't init the logger driver*/
-    if((rval != 0) || (ctl_info.on_off_flag != USER_LOG_ON))
-        return 0;	
-    #endif
-    /*regardless nv is on,create log devices, kernel control whether can write*/
-    atomic_set(&log_switch, ctl_info.on_off_flag);
+/* for logcat control by nv */
+#ifdef CONFIG_HUAWEI_KERNEL
+	struct log_ctl ctl_info;
+	int  rval = -1;
+	u16 nv_item = LOG_CTL_INFO_ITEM;
+
+	/* default to disable ddms log*/
+	/* default to open ddms log temp */
+	ctl_info.on_off_flag = USER_LOG_OFF;
+	printk("%s, %d: driver default on_off_flag == %d\n", __FUNCTION__, __LINE__, ctl_info.on_off_flag);
+	rval = oem_rapi_read_nv(nv_item, (void*)&ctl_info, sizeof(ctl_info));
+	printk("logger open flag: on_off_flag=%d\n", ctl_info.on_off_flag);
+#  if 0
+	/*if log nv(NV_LOG_CTL_INFO_I) is 0 or inactive , we don't init the logger driver*/
+	if((rval != 0) || (ctl_info.on_off_flag != USER_LOG_ON))
+		return 0;
+#  endif
+	/*regardless nv is on,create log devices, kernel control whether can write*/
+	atomic_set(&log_switch, ctl_info.on_off_flag);
 #endif
 	
-	ret = init_log(&log_main);
-	if (unlikely(ret))
-		goto out;
+	ret = create_log(LOGGER_LOG_MAIN, 64*1024);
+ 	if (unlikely(ret))
+ 		goto out;
 
-	ret = init_log(&log_events);
-	if (unlikely(ret))
-		goto out;
+	ret = create_log(LOGGER_LOG_EVENTS, 64*1024);
+ 	if (unlikely(ret))
+ 		goto out;
 
-	ret = init_log(&log_radio);
-	if (unlikely(ret))
-		goto out;
+	ret = create_log(LOGGER_LOG_RADIO, 64*1024);
+ 	if (unlikely(ret))
+ 		goto out;
 
-	ret = init_log(&log_system);
-	if (unlikely(ret))
-		goto out;
+	ret = create_log(LOGGER_LOG_SYSTEM, 64*1024);
+ 	if (unlikely(ret))
+ 		goto out;
 
 #if defined(CONFIG_HUAWEI_KERNEL)
-    ret = init_log(&log_exception);
-    if (unlikely(ret))
-        goto out;
-    ret = init_log(&log_power);
-    if (unlikely(ret))
-        goto out;
-#endif
-#if defined(CONFIG_HUAWEI_KERNEL)
-    /* record the minor of exception node */
-    minor_of_exception = log_exception.misc.minor;
-    minor_of_power = log_power.misc.minor;
-    minor_of_events = log_events.misc.minor;
-    minor_of_main = log_main.misc.minor;
-    printk("%s, minor_of_events=%d\n", __FUNCTION__, minor_of_events);
-    printk("%s, minor_of_main=%d\n", __FUNCTION__, minor_of_main);
-    printk("%s, minor_of_exception=%d\n", __FUNCTION__, minor_of_exception);
-
-    ret = misc_register(&log_switch_misc_dev);
-    if (unlikely(ret))
-    {
-        printk(KERN_ERR "logger: failed to register misc "
-                "device for log '%s'!\n", log_switch_misc_dev.name);
-        goto out;
-    }
-#endif
-#ifdef CONFIG_HUAWEI_KERNEL
-    save_address_to_crash_dump(" __init_begin=%p;", __init_begin);
-    save_address_to_crash_dump(" _end=%p;", _end);
-    /*save logbuf physical address, for export logs */
-    save_address_to_crash_dump(" log_main=%p-%d;", virt_to_phys(_buf_log_main), log_main.size);
-    save_address_to_crash_dump(" log_events=%p-%d;", virt_to_phys(_buf_log_events), log_events.size);
-    save_address_to_crash_dump(" log_radio=%p-%d;", virt_to_phys(_buf_log_radio), log_radio.size);
-    save_address_to_crash_dump(" log_system=%p-%d;", virt_to_phys(_buf_log_system), log_system.size);
+	ret = create_log(LOGGER_LOG_EXCEPTION, 16*1024);
+	if (unlikely(ret))
+		goto out;
+	ret = create_log(LOGGER_LOG_POWER, 16*1024);
+	if (unlikely(ret))
+		goto out;
+#  if 0
+	/* record the minor of exception node */
+	minor_of_exception = log_exception.misc.minor;
+	minor_of_power = log_power.misc.minor;
+	minor_of_events = log_events.misc.minor;
+	minor_of_main = log_main.misc.minor;
+	printk("%s, minor_of_events=%d\n", __FUNCTION__, minor_of_events);
+	printk("%s, minor_of_main=%d\n", __FUNCTION__, minor_of_main);
+	printk("%s, minor_of_exception=%d\n", __FUNCTION__,
+						minor_of_exception);
+#  endif
+	ret = misc_register(&log_switch_misc_dev);
+	if (unlikely(ret))
+	{
+		printk(KERN_ERR "logger: failed to register misc "
+			"device for log '%s'!\n", log_switch_misc_dev.name);
+		goto out;
+	}
+#  if 0
+	save_address_to_crash_dump(" __init_begin=%p;", __init_begin);
+	save_address_to_crash_dump(" _end=%p;", _end);
+	/*save logbuf physical address, for export logs */
+	save_address_to_crash_dump(" log_main=%p-%d;",
+			virt_to_phys(_buf_log_main), log_main.size);
+	save_address_to_crash_dump(" log_events=%p-%d;",
+			virt_to_phys(_buf_log_events), log_events.size);
+	save_address_to_crash_dump(" log_radio=%p-%d;",
+			virt_to_phys(_buf_log_radio), log_radio.size);
+	save_address_to_crash_dump(" log_system=%p-%d;",
+			virt_to_phys(_buf_log_system), log_system.size);
+#  endif
 #endif
 
 out:
 	return ret;
 }
+
+static void __exit logger_exit(void)
+{
+	struct logger_log *current_log, *next_log;
+
+	list_for_each_entry_safe(current_log, next_log, &log_list, logs) {
+		/* we have to delete all the entry inside log_list */
+		misc_deregister(&current_log->misc);
+		vfree(current_log->buffer);
+		kfree(current_log->misc.name);
+		list_del(&current_log->logs);
+		kfree(current_log);
+	}
+}
+
+
 device_initcall(logger_init);
+module_exit(logger_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Robert Love, <rlove@google.com>");
+MODULE_DESCRIPTION("Android Logger");
