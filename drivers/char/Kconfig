@@ -6,6 +6,17 @@ menu "Character devices"
 
 source "drivers/tty/Kconfig"
 
+config DEVFRANDOM
+	bool "/dev/frandom (fast random number genarator)"
+	default y
+	help
+	  Frandom is a Linux kernel random number generator, which is
+	  10-50 times faster than what you get from Linux' built-in
+	  /dev/urandom. It uses very little (/dev/frandom)
+	  or none (/dev/erandom) of the kernel's entropy pool, so it
+	  is very useful for applications that require a handy source
+	  for lots of random data.
+
 config DEVMEM
 	bool "Memory device driver"
 	default y
