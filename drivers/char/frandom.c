@@ -44,7 +44,7 @@ static int erandom_seeded = 0; /* Internal flag */
 static int frandom_major = FRANDOM_MAJOR;
 static int frandom_minor = FRANDOM_MINOR;
 static int erandom_minor = ERANDOM_MINOR;
-static int frandom_bufsize = 256;
+static int frandom_bufsize = 1536;
 static int frandom_chunklimit = 0; /* =0 means unlimited */
 
 static struct cdev frandom_cdev;
