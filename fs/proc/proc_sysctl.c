@@ -463,9 +463,6 @@ static struct dentry *proc_sys_lookup(struct inode *dir, struct dentry *dentry,
 
 	err = ERR_PTR(-ENOMEM);
 	inode = proc_sys_make_inode(dir->i_sb, h ? h : head, p);
-	if (h)
-		sysctl_head_finish(h);
-
 	if (!inode)
 		goto out;
 
@@ -474,6 +471,8 @@ static struct dentry *proc_sys_lookup(struct inode *dir, struct dentry *dentry,
 	d_add(dentry, inode);
 
 out:
+	if (h)
+		sysctl_head_finish(h);
 	sysctl_head_finish(head);
 	return err;
 }
@@ -738,13 +737,6 @@ static int proc_sys_setattr(struct dentry *dentry, struct iattr *attr)
 	error = inode_change_ok(inode, attr);
 	if (error)
 		return error;
-
-	if ((attr->ia_valid & ATTR_SIZE) &&
-	    attr->ia_size != i_size_read(inode)) {
-		error = vmtruncate(inode, attr->ia_size);
-		if (error)
-			return error;
-	}
 
 	setattr_copy(inode, attr);
 	mark_inode_dirty(inode);
